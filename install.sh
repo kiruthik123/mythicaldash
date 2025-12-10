@@ -1,7 +1,7 @@
 #!/bin/bash
 # ============================================================================
 # MythicalDash Deployment System
-# Version: 3.1.0 - KS HOSTING BY KSGAMING
+# Version: 3.2.0 - KS HOSTING BY KSGAMING
 # ============================================================================
 
 set -euo pipefail
@@ -11,16 +11,17 @@ IFS=$'\n\t'
 # CONFIGURATION
 # ============================================================================
 readonly SCRIPT_NAME="mythicaldash-deploy"
-readonly SCRIPT_VERSION="3.1.0"
+readonly SCRIPT_VERSION="3.2.0"
 readonly COMPANY_NAME="KS HOSTING BY KSGAMING"
 readonly INSTALL_DIR="/var/www/mythicaldash-v3"
 readonly LOG_FILE="/var/log/mythicaldash-install.log"
-readonly CONFIG_FILE="/etc/mythicaldash/config.conf"
 
 # ============================================================================
 # COLOR & EMOJI DEFINITIONS
 # ============================================================================
 readonly RESET='\033[0m'
+readonly BOLD='\033[1m'
+readonly DIM='\033[2m'
 
 # Bright Colors
 readonly RED='\033[1;31m'
@@ -36,10 +37,6 @@ readonly KS_BLUE='\033[38;5;39m'
 readonly KS_ORANGE='\033[38;5;208m'
 readonly KS_PURPLE='\033[38;5;93m'
 readonly KS_GREEN='\033[38;5;46m'
-
-# Background Colors
-readonly BG_BLACK='\033[48;5;232m'
-readonly BG_BLUE='\033[48;5;18m'
 
 # Emojis
 readonly EMOJI_CHECK="✅"
@@ -75,6 +72,10 @@ readonly EMOJI_UNLOCK="🔓"
 readonly EMOJI_BELL="🔔"
 readonly EMOJI_FLAG="🏁"
 readonly EMOJI_TROPHY="🏆"
+readonly EMOJI_FILE="📄"
+readonly EMOJI_TERMINAL="💻"
+readonly EMOJI_SPEED="⚡"
+readonly EMOJI_DIAMOND="💎"
 
 # ============================================================================
 # ANIMATION & LOADING FUNCTIONS
@@ -82,99 +83,128 @@ readonly EMOJI_TROPHY="🏆"
 show_spinner() {
     local pid=$1
     local message="$2"
-    local delay=0.15
-    local spinstr='⣷⣯⣟⡿⢿⣻⣽⣾'
+    local delay=0.1
+    local spinstr='|/-\\'
     
     echo -ne "${KS_BLUE}${EMOJI_GEAR}  ${message}... ${RESET}"
     
     while kill -0 $pid 2>/dev/null; do
-        for i in $(seq 0 7); do
+        for i in $(seq 0 3); do
             echo -ne "${KS_ORANGE}${spinstr:$i:1}${RESET}"
             sleep $delay
             echo -ne "\b"
         done
     done
     
-    echo -ne "\b\b\b\b\b\b\b"
+    echo -ne "\b\b\b\b"
     echo -e "${GREEN}${EMOJI_CHECK} Done!${RESET}"
 }
 
-show_dots() {
-    local pid=$1
+show_progress_bar() {
+    local duration=$1
     local message="$2"
-    local dots=""
+    local width=50
     
-    echo -ne "${CYAN}${EMOJI_INFO}  ${message}${RESET}"
+    echo -ne "${CYAN}${EMOJI_SPEED}  ${message} ${RESET}"
+    echo -ne "["
     
+    for ((i=0; i<width; i++)); do
+        echo -ne "${KS_ORANGE}=>${RESET}"
+        sleep $(echo "scale=3; $duration/$width" | bc)
+    done
+    
+    echo -e "] ${GREEN}${EMOJI_CHECK}${RESET}"
+}
+
+show_command_execution() {
+    local cmd="$1"
+    local desc="$2"
+    
+    echo -e "\n${CYAN}${EMOJI_TERMINAL}  EXECUTING: ${WHITE}${desc}${RESET}"
+    echo -e "${DIM}${WHITE}└─ Command: ${KS_ORANGE}${cmd}${RESET}"
+    
+    # Show a simple animation while command runs
+    local frames=("⡀" "⡄" "⡆" "⡇" "⣇" "⣧" "⣷" "⣿")
+    local frame=0
+    
+    # Start command in background
+    eval "$cmd" > /dev/null 2>&1 &
+    local pid=$!
+    
+    # Show animation
     while kill -0 $pid 2>/dev/null; do
-        dots="${dots}."
-        echo -ne "${KS_ORANGE}${dots}${RESET}"
-        sleep 0.5
-        echo -ne "\033[${#dots}D\033[K${CYAN}${EMOJI_INFO}  ${message}${RESET}"
-        if [ ${#dots} -gt 3 ]; then
-            dots=""
-        fi
-    done
-    
-    echo -e "${GREEN} ${EMOJI_CHECK}${RESET}"
-}
-
-show_progress() {
-    local total=$1
-    local current=0
-    
-    while [ $current -le $total ]; do
-        local percent=$((current * 100 / total))
-        local filled=$((percent / 2))
-        local empty=$((50 - filled))
-        
-        printf "\r${KS_BLUE}${EMOJI_UPLOAD}  Progress: ["
-        printf "%${filled}s" | tr ' ' '█'
-        printf "%${empty}s" | tr ' ' '░'
-        printf "] ${percent}%%${RESET}"
-        
-        sleep 0.05
-        ((current++))
-    done
-    echo
-}
-
-show_fancy_loading() {
-    local message="$1"
-    local frames=("🕐" "🕑" "🕒" "🕓" "🕔" "🕕" "🕖" "🕗" "🕘" "🕙" "🕚" "🕛")
-    
-    echo -ne "${KS_PURPLE}${EMOJI_CLOCK}  ${message} ${RESET}"
-    
-    for i in {1..12}; do
-        echo -ne "${KS_ORANGE}${frames[$i % 12]}${RESET}"
+        echo -ne "${KS_BLUE}${frames[frame]}${RESET}"
         sleep 0.1
+        echo -ne "\b"
+        frame=$(( (frame + 1) % 8 ))
+    done
+    
+    wait $pid
+    local exit_code=$?
+    
+    echo -ne "\b"
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}${EMOJI_CHECK} Success${RESET}"
+    else
+        echo -e "${RED}${EMOJI_ERROR} Failed (code: $exit_code)${RESET}"
+    fi
+    
+    return $exit_code
+}
+
+show_whats_running() {
+    local message="$1"
+    local cmd="$2"
+    
+    echo -e "\n${BLUE}${EMOJI_TERMINAL}  CURRENT TASK: ${WHITE}${message}${RESET}"
+    echo -e "${DIM}${WHITE}└─ Command: ${YELLOW}${cmd}${RESET}"
+    
+    # Create a simple progress indicator
+    local dots=""
+    echo -ne "${KS_BLUE}${EMOJI_SPEED}  Running"
+    
+    # Run command in background
+    eval "$cmd" > /dev/null 2>&1 &
+    local pid=$!
+    
+    # Show dots while command runs
+    while kill -0 $pid 2>/dev/null; do
+        echo -ne "${KS_ORANGE}.${RESET}"
+        sleep 0.5
         echo -ne "\b"
     done
     
-    echo -e "${GREEN}${EMOJI_CHECK}${RESET}"
+    wait $pid
+    local exit_code=$?
+    
+    echo -ne "\b"
+    if [ $exit_code -eq 0 ]; then
+        echo -e " ${GREEN}${EMOJI_CHECK} Completed${RESET}"
+    else
+        echo -e " ${RED}${EMOJI_ERROR} Failed${RESET}"
+    fi
+    
+    return $exit_code
 }
 
-show_banner() {
-    clear
-    echo -e "${KS_BLUE}"
-    echo "╔══════════════════════════════════════════════════════════════════════╗"
-    echo "║                                                                      ║"
-    echo "║  ██╗  ██╗███████╗    ██╗  ██╗ ██████╗ ███████╗ █████╗ ███╗   ███╗   ║"
-    echo "║  ██║ ██╔╝██╔════╝    ██║  ██║██╔═══██╗██╔════╝██╔══██╗████╗ ████║   ║"
-    echo "║  █████╔╝ ███████╗    ███████║██║   ██║███████╗███████║██╔████╔██║   ║"
-    echo "║  ██╔═██╗ ╚════██║    ██╔══██║██║   ██║╚════██║██╔══██║██║╚██╔╝██║   ║"
-    echo "║  ██║  ██╗███████║    ██║  ██║╚██████╔╝███████║██║  ██║██║ ╚═╝ ██║   ║"
-    echo "║  ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝   ║"
-    echo "║                                                                      ║"
-    echo "║  ${KS_GREEN}${EMOJI_ROCKET}  KS HOSTING BY KSGAMING - DEPLOYMENT SYSTEM ${KS_BLUE}              ║"
-    echo "║  ${WHITE}Version ${SCRIPT_VERSION} • Professional • Secure • Fast ${KS_BLUE}                    ║"
-    echo "║                                                                      ║"
-    echo "╚══════════════════════════════════════════════════════════════════════╝"
-    echo -e "${RESET}"
-    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
-    echo -e "${WHITE}${EMOJI_COMPUTER}  System: $(lsb_release -ds 2>/dev/null || echo "Linux System")${RESET}"
-    echo -e "${WHITE}${EMOJI_CLOCK}  Started: $(date '+%Y-%m-%d %H:%M:%S')${RESET}"
-    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}\n"
+run_and_show() {
+    local cmd="$1"
+    local description="$2"
+    
+    echo -e "\n${CYAN}${EMOJI_GEAR}  ${description}${RESET}"
+    echo -e "${DIM}${WHITE}└─ ${cmd}${RESET}"
+    
+    # Show the full command
+    echo -e "${YELLOW}${BOLD}Full command:${RESET} ${WHITE}${cmd}${RESET}"
+    
+    # Execute with output
+    if eval "$cmd" 2>&1; then
+        echo -e "${GREEN}${EMOJI_CHECK}  ${description} completed successfully${RESET}"
+        return 0
+    else
+        echo -e "${RED}${EMOJI_ERROR}  ${description} failed${RESET}"
+        return 1
+    fi
 }
 
 # ============================================================================
@@ -201,8 +231,8 @@ log_warning() {
 }
 
 log_step() {
-    echo -e "\n${KS_PURPLE}${EMOJI_FLAG}  STEP: $1${RESET}"
-    echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+    echo -e "\n${KS_PURPLE}${EMOJI_FLAG}  STEP: ${BOLD}$1${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
 }
 
 log_substep() {
@@ -210,50 +240,29 @@ log_substep() {
 }
 
 # ============================================================================
-# COMMAND EXECUTION WITH VISUAL FEEDBACK
+# BANNER & DISPLAY FUNCTIONS
 # ============================================================================
-run_command() {
-    local cmd="$1"
-    local desc="$2"
-    local log_output="${3:-false}"
-    
-    echo -e "${CYAN}${EMOJI_GEAR}  Running: ${WHITE}$desc${RESET}"
-    echo -e "${KS_ORANGE}└─ Command: ${WHITE}${cmd:0:80}${RESET}"
-    
-    if [ "$log_output" = true ]; then
-        if eval "$cmd" >> "$LOG_FILE" 2>&1 & then
-            local pid=$!
-            show_spinner $pid "Processing"
-        fi
-    else
-        if eval "$cmd" &> /dev/null & then
-            local pid=$!
-            show_spinner $pid "Executing"
-        fi
-    fi
-    
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}${EMOJI_THUMBS}  Completed successfully${RESET}"
-        return 0
-    else
-        echo -e "${RED}${EMOJI_ERROR}  Failed to execute${RESET}"
-        return 1
-    fi
-}
-
-run_silent() {
-    local cmd="$1"
-    local desc="$2"
-    
-    echo -ne "${CYAN}${EMOJI_GEAR}  $desc... ${RESET}"
-    
-    if eval "$cmd" &> /dev/null; then
-        echo -e "${GREEN}${EMOJI_CHECK}${RESET}"
-        return 0
-    else
-        echo -e "${RED}${EMOJI_ERROR}${RESET}"
-        return 1
-    fi
+show_banner() {
+    clear
+    echo -e "${KS_BLUE}"
+    echo "╔══════════════════════════════════════════════════════════════════════════╗"
+    echo "║                                                                          ║"
+    echo "║  ██╗  ██╗███████╗    ██╗  ██╗ ██████╗ ███████╗ █████╗ ███╗   ███╗       ║"
+    echo "║  ██║ ██╔╝██╔════╝    ██║  ██║██╔═══██╗██╔════╝██╔══██╗████╗ ████║       ║"
+    echo "║  █████╔╝ ███████╗    ███████║██║   ██║███████╗███████║██╔████╔██║       ║"
+    echo "║  ██╔═██╗ ╚════██║    ██╔══██║██║   ██║╚════██║██╔══██║██║╚██╔╝██║       ║"
+    echo "║  ██║  ██╗███████║    ██║  ██║╚██████╔╝███████║██║  ██║██║ ╚═╝ ██║       ║"
+    echo "║  ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝       ║"
+    echo "║                                                                          ║"
+    echo "║  ${KS_GREEN}${EMOJI_ROCKET}  KS HOSTING BY KSGAMING - DEPLOYMENT SYSTEM ${KS_BLUE}                 ║"
+    echo "║  ${WHITE}Version ${SCRIPT_VERSION} • Professional • Secure • Fast ${KS_BLUE}                       ║"
+    echo "║                                                                          ║"
+    echo "╚══════════════════════════════════════════════════════════════════════════╝"
+    echo -e "${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}${EMOJI_COMPUTER}  System: $(lsb_release -ds 2>/dev/null || echo "Linux System")${RESET}"
+    echo -e "${WHITE}${EMOJI_CLOCK}  Started: $(date '+%Y-%m-%d %H:%M:%S')${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}\n"
 }
 
 # ============================================================================
@@ -262,13 +271,19 @@ run_silent() {
 validate_system() {
     log_step "System Validation"
     
-    run_silent "[ -f /etc/os-release ]" "Checking operating system"
+    echo -e "${BLUE}${EMOJI_MAG}  Checking system requirements...${RESET}"
+    
+    # Check OS
+    if [ ! -f /etc/os-release ]; then
+        log_error "Cannot detect operating system"
+        exit 1
+    fi
     
     source /etc/os-release
     
     case "$ID" in
         ubuntu|debian)
-            log_success "Detected: $PRETTY_NAME"
+            log_success "Supported OS: $PRETTY_NAME"
             ;;
         *)
             log_error "Unsupported OS: $PRETTY_NAME"
@@ -276,9 +291,18 @@ validate_system() {
             ;;
     esac
     
-    run_silent "[ $(id -u) -eq 0 ]" "Checking root privileges"
-    run_silent "command -v curl" "Checking for curl"
-    run_silent "command -v wget" "Checking for wget"
+    # Check root
+    if [ "$EUID" -ne 0 ]; then
+        log_error "Please run as root: sudo bash $0"
+        exit 1
+    fi
+    
+    # Check internet
+    if ! ping -c 1 google.com &> /dev/null; then
+        log_warning "Internet connection check failed"
+    else
+        log_success "Internet connection verified"
+    fi
     
     echo -e "${GREEN}${EMOJI_SHIELD}  System validation passed${RESET}"
 }
@@ -286,11 +310,34 @@ validate_system() {
 # ============================================================================
 # PACKAGE MANAGEMENT
 # ============================================================================
+update_system() {
+    log_step "System Update"
+    
+    echo -e "${CYAN}${EMOJI_DOWNLOAD}  Updating package lists...${RESET}"
+    
+    if run_and_show "apt-get update -qq" "Updating package database"; then
+        log_success "Package lists updated"
+    else
+        log_error "Failed to update package lists"
+        return 1
+    fi
+    
+    echo -e "${CYAN}${EMOJI_UPLOAD}  Upgrading system packages...${RESET}"
+    
+    if run_and_show "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq" "Upgrading system"; then
+        log_success "System upgraded"
+    else
+        log_warning "System upgrade completed with warnings"
+    fi
+    
+    return 0
+}
+
 install_packages() {
     local packages=("$@")
     local install_list=()
     
-    log_substep "Checking system packages"
+    echo -e "${BLUE}${EMOJI_HAMMER}  Checking packages...${RESET}"
     
     for pkg in "${packages[@]}"; do
         if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
@@ -303,20 +350,19 @@ install_packages() {
     if [ ${#install_list[@]} -gt 0 ]; then
         echo -e "${CYAN}${EMOJI_DOWNLOAD}  Installing: ${install_list[*]}${RESET}"
         
-        run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${install_list[@]}" \
-            "Installing system packages" true
+        local install_cmd="DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${install_list[@]}"
         
-        log_success "Packages installed"
+        if show_whats_running "Installing system packages" "$install_cmd"; then
+            log_success "Packages installed successfully"
+        else
+            log_error "Failed to install packages"
+            return 1
+        fi
+    else
+        echo -e "${GREEN}${EMOJI_CHECK}  All required packages are already installed${RESET}"
     fi
-}
-
-update_system() {
-    log_step "System Update"
     
-    run_command "apt-get update -qq" "Updating package lists" true
-    run_command "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq" "Upgrading system" true
-    
-    log_success "System updated"
+    return 0
 }
 
 # ============================================================================
@@ -329,20 +375,51 @@ setup_database() {
     local db_user="mythical_user"
     local db_pass=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 16)
     
-    log_substep "Securing MariaDB"
-    run_silent "mysql -e \"DELETE FROM mysql.user WHERE User='';\" >/dev/null 2>&1" "Removing anonymous users"
-    run_silent "mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');\" >/dev/null 2>&1" "Securing root"
+    echo -e "${BLUE}${EMOJI_DATABASE}  Setting up MariaDB database...${RESET}"
     
-    log_substep "Creating database"
-    run_command "mysql -e \"CREATE DATABASE IF NOT EXISTS $db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\"" "Creating database" false
-    run_command "mysql -e \"CREATE USER IF NOT EXISTS '$db_user'@'127.0.0.1' IDENTIFIED BY '$db_pass';\"" "Creating user" false
-    run_command "mysql -e \"GRANT ALL PRIVILEGES ON $db_name.* TO '$db_user'@'127.0.0.1';\"" "Granting privileges" false
-    run_silent "mysql -e \"FLUSH PRIVILEGES;\"" "Flushing privileges"
+    # Secure MariaDB
+    echo -e "${CYAN}${EMOJI_SHIELD}  Securing MariaDB installation...${RESET}"
+    
+    local secure_sql="
+        DELETE FROM mysql.user WHERE User='';
+        DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');
+        DROP DATABASE IF EXISTS test;
+        DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%';
+        FLUSH PRIVILEGES;
+    "
+    
+    if show_whats_running "Securing MariaDB" "mysql -e \"$secure_sql\""; then
+        echo -e "${GREEN}${EMOJI_CHECK}  MariaDB secured${RESET}"
+    fi
+    
+    # Create database
+    echo -e "${CYAN}${EMOJI_FILE}  Creating database...${RESET}"
+    
+    if show_whats_running "Creating database" "mysql -e \"CREATE DATABASE IF NOT EXISTS $db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Database created: $db_name${RESET}"
+    fi
+    
+    # Create user
+    echo -e "${CYAN}${EMOJI_KEY}  Creating database user...${RESET}"
+    
+    if show_whats_running "Creating user" "mysql -e \"CREATE USER IF NOT EXISTS '$db_user'@'127.0.0.1' IDENTIFIED BY '$db_pass';\""; then
+        echo -e "${GREEN}${EMOJI_CHECK}  User created: $db_user${RESET}"
+    fi
+    
+    # Grant privileges
+    echo -e "${CYAN}${EMOJI_UNLOCK}  Granting privileges...${RESET}"
+    
+    if show_whats_running "Granting privileges" "mysql -e \"GRANT ALL PRIVILEGES ON $db_name.* TO '$db_user'@'127.0.0.1';\""; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Privileges granted${RESET}"
+    fi
+    
+    # Flush privileges
+    show_whats_running "Finalizing" "mysql -e \"FLUSH PRIVILEGES;\""
     
     # Save credentials
     mkdir -p /etc/mythicaldash
     cat > /etc/mythicaldash/db.conf <<EOF
-# Database Configuration
+# Database Configuration - KS HOSTING
 DB_HOST=127.0.0.1
 DB_PORT=3306
 DB_NAME=$db_name
@@ -352,202 +429,146 @@ EOF
     
     chmod 600 /etc/mythicaldash/db.conf
     
-    echo -e "${GREEN}${EMOJI_KEY}  Database credentials saved to /etc/mythicaldash/db.conf${RESET}"
-    log_success "Database configured"
+    echo -e "${GREEN}${EMOJI_KEY}  Database credentials saved to: /etc/mythicaldash/db.conf${RESET}"
+    log_success "Database configuration completed"
 }
 
 # ============================================================================
 # APPLICATION DEPLOYMENT
 # ============================================================================
-deploy_application() {
-    local mode="$1"
+download_application() {
+    log_step "Downloading Application"
     
-    log_step "Application Deployment"
+    local download_url="https://github.com/MythicalLTD/MythicalDash/releases/latest/download/MythicalDash.zip"
+    local temp_file="/tmp/mythicaldash-$(date +%s).zip"
     
-    # Create directory
-    run_silent "mkdir -p $INSTALL_DIR" "Creating installation directory"
-    run_silent "chmod 755 $INSTALL_DIR" "Setting permissions"
+    echo -e "${BLUE}${EMOJI_DOWNLOAD}  Downloading MythicalDash...${RESET}"
+    echo -e "${DIM}${WHITE}Source: ${download_url}${RESET}"
     
-    # Download
-    log_substep "Downloading MythicalDash"
-    run_command "wget -q -O /tmp/mythicaldash.zip https://github.com/MythicalLTD/MythicalDash/releases/latest/download/MythicalDash.zip" \
-        "Downloading application" true
+    if show_whats_running "Downloading application" "wget -q -O $temp_file $download_url"; then
+        local file_size=$(stat -c%s "$temp_file" 2>/dev/null || echo "0")
+        if [ "$file_size" -gt 1000000 ]; then
+            echo -e "${GREEN}${EMOJI_CHECK}  Download complete ($((file_size/1024/1024)) MB)${RESET}"
+        else
+            log_warning "Downloaded file seems small ($file_size bytes)"
+        fi
+    else
+        log_error "Failed to download application"
+        return 1
+    fi
     
-    # Extract
-    log_substep "Extracting files"
-    run_command "unzip -q -o /tmp/mythicaldash.zip -d $INSTALL_DIR" \
-        "Extracting archive" false
+    # Extract application
+    echo -e "${BLUE}${EMOJI_FOLDER}  Extracting files...${RESET}"
     
-    run_silent "rm -f /tmp/mythicaldash.zip" "Cleaning up"
+    if show_whats_running "Extracting files" "unzip -q -o $temp_file -d $INSTALL_DIR"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Files extracted to $INSTALL_DIR${RESET}"
+    else
+        log_error "Failed to extract files"
+        return 1
+    fi
+    
+    # Cleanup
+    rm -f "$temp_file"
     
     # Set permissions
-    run_silent "chown -R www-data:www-data $INSTALL_DIR" "Setting ownership"
-    run_silent "find $INSTALL_DIR -type d -exec chmod 755 {} \;" "Setting directory permissions"
-    run_silent "find $INSTALL_DIR -type f -exec chmod 644 {} \;" "Setting file permissions"
+    echo -e "${BLUE}${EMOJI_LOCK}  Setting permissions...${RESET}"
     
-    log_success "Application deployed to $INSTALL_DIR"
-}
-
-setup_nginx() {
-    log_step "Web Server Configuration"
+    show_whats_running "Setting ownership" "chown -R www-data:www-data $INSTALL_DIR"
+    show_whats_running "Setting directory permissions" "find $INSTALL_DIR -type d -exec chmod 755 {} \\;"
+    show_whats_running "Setting file permissions" "find $INSTALL_DIR -type f -exec chmod 644 {} \\;"
     
-    cat > /etc/nginx/sites-available/mythicaldash <<'EOF'
-server {
-    listen 80;
-    server_name _;
-    root /var/www/mythicaldash-v3/public;
-    index index.php;
-    
-    location / {
-        try_files $uri $uri/ /index.php?$query_string;
-    }
-    
-    location ~ \.php$ {
-        include snippets/fastcgi-php.conf;
-        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
-        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        include fastcgi_params;
-    }
-}
-EOF
-    
-    run_silent "ln -sf /etc/nginx/sites-available/mythicaldash /etc/nginx/sites-enabled/" "Enabling site"
-    run_silent "rm -f /etc/nginx/sites-enabled/default" "Removing default site"
-    
-    run_command "nginx -t" "Testing configuration" false
-    run_silent "systemctl reload nginx" "Reloading Nginx"
-    
-    log_success "Nginx configured"
+    log_success "Application downloaded and prepared"
 }
 
 # ============================================================================
 # DOCKER DEPLOYMENT
 # ============================================================================
-install_docker() {
-    log_step "Docker Installation"
+install_docker_engine() {
+    log_step "Docker Engine Installation"
     
-    log_substep "Setting up repository"
-    run_silent "apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null" "Cleaning old versions"
+    echo -e "${BLUE}${EMOJI_DOCKER}  Installing Docker...${RESET}"
     
-    run_command "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh" \
-        "Downloading Docker installer" true
+    # Remove old versions
+    echo -e "${CYAN}${EMOJI_WRENCH}  Removing old Docker versions...${RESET}"
+    show_whats_running "Cleaning old Docker" "apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null"
     
-    run_command "sh /tmp/get-docker.sh" \
-        "Installing Docker Engine" true
+    # Install prerequisites
+    echo -e "${CYAN}${EMOJI_HAMMER}  Installing prerequisites...${RESET}"
+    install_packages apt-transport-https ca-certificates curl gnupg lsb-release
     
-    run_silent "rm -f /tmp/get-docker.sh" "Cleaning up"
+    # Add Docker repository
+    echo -e "${CYAN}${EMOJI_FOLDER}  Adding Docker repository...${RESET}"
     
-    run_silent "systemctl enable docker" "Enabling Docker"
-    run_silent "systemctl start docker" "Starting Docker"
-    
-    log_success "Docker installed"
-}
-
-deploy_with_docker() {
-    log_step "Docker Deployment"
-    
-    if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
-        log_error "docker-compose.yml not found"
-        return 1
+    if show_whats_running "Adding GPG key" "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  GPG key added${RESET}"
     fi
     
-    cd "$INSTALL_DIR"
+    local arch=$(dpkg --print-architecture)
+    local repo_cmd="echo \"deb [arch=$arch signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | tee /etc/apt/sources.list.d/docker.list > /dev/null"
     
-    log_substep "Starting containers"
-    run_command "docker compose up -d" "Starting Docker services" true
+    if show_whats_running "Adding repository" "$repo_cmd"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Repository added${RESET}"
+    fi
     
-    echo -e "${CYAN}${EMOJI_CLOCK}  Waiting for services to start...${RESET}"
-    sleep 10
+    # Update and install Docker
+    echo -e "${CYAN}${EMOJI_DOWNLOAD}  Installing Docker Engine...${RESET}"
     
-    log_success "Docker deployment complete"
-}
-
-# ============================================================================
-# CLOUDFLARE TUNNEL
-# ============================================================================
-setup_cloudflare() {
-    local mode="$1"
-    local email="$2"
-    local api_key="$3"
-    local hostname="$4"
+    show_whats_running "Updating packages" "apt-get update -qq"
     
-    log_step "Cloudflare Tunnel Setup"
+    local docker_packages="docker-ce docker-ce-cli containerd.io docker-compose-plugin"
+    if show_whats_running "Installing Docker packages" "apt-get install -y -qq $docker_packages"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Docker packages installed${RESET}"
+    fi
     
-    case "$mode" in
-        "full")
-            setup_cloudflare_full "$email" "$api_key" "$hostname"
-            ;;
-        "semi")
-            echo -e "${YELLOW}${EMOJI_INFO}  Manual configuration required${RESET}"
-            echo -e "${WHITE}Please set up Cloudflare Tunnel manually:${RESET}"
-            echo -e "${CYAN}1. ${WHITE}Login to Cloudflare Dashboard${RESET}"
-            echo -e "${CYAN}2. ${WHITE}Go to Zero Trust → Networks → Tunnels${RESET}"
-            echo -e "${CYAN}3. ${WHITE}Create a tunnel pointing to ${KS_BLUE}http://localhost:4830${RESET}"
-            echo -e "${CYAN}4. ${WHITE}Configure DNS record for ${KS_BLUE}$hostname${RESET}"
-            ;;
-    esac
-}
-
-setup_cloudflare_full() {
-    local email="$1"
-    local api_key="$2"
-    local hostname="$3"
+    # Start and enable Docker
+    echo -e "${CYAN}${EMOJI_ROCKET}  Starting Docker service...${RESET}"
     
-    log_substep "Installing cloudflared"
-    run_command "wget -q -O /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb" \
-        "Downloading cloudflared" true
+    if show_whats_running "Enabling Docker" "systemctl enable docker"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Docker enabled${RESET}"
+    fi
     
-    run_silent "dpkg -i /tmp/cloudflared.deb" "Installing package"
-    run_silent "rm -f /tmp/cloudflared.deb" "Cleaning up"
+    if show_whats_running "Starting Docker" "systemctl start docker"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Docker started${RESET}"
+    fi
     
-    log_substep "Setting up tunnel"
-    # Note: This is a simplified version. Real implementation would need API calls
+    # Add user to docker group
+    echo -e "${CYAN}${EMOJI_COMPUTER}  Configuring user permissions...${RESET}"
     
-    echo -e "${GREEN}${EMOJI_LINK}  Tunnel will be configured for: ${KS_BLUE}$hostname${RESET}"
-    log_success "Cloudflare setup initiated"
+    if show_whats_running "Adding user to docker group" "usermod -aG docker $SUDO_USER"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  User added to docker group${RESET}"
+        echo -e "${YELLOW}${EMOJI_INFO}  Note: You may need to log out and back in for group changes to take effect${RESET}"
+    fi
+    
+    # Verify installation
+    echo -e "${CYAN}${EMOJI_MAG}  Verifying installation...${RESET}"
+    
+    if show_whats_running "Checking Docker version" "docker --version"; then
+        log_success "Docker Engine installed successfully"
+    else
+        log_error "Docker installation verification failed"
+        return 1
+    fi
 }
 
 # ============================================================================
 # USER INTERFACE
 # ============================================================================
 show_main_menu() {
-    echo -e "\n${KS_BLUE}${EMOJI_COMPUTER}  MAIN MENU ${KS_ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e "\n${KS_BLUE}${EMOJI_DIAMOND}  KS HOSTING DEPLOYMENT MENU ${KS_ORANGE}═══════════════════════════════════════${RESET}"
     echo -e ""
     echo -e "  ${GREEN}${EMOJI_DOCKER} [1] Docker Deployment${RESET}"
-    echo -e "     ${WHITE}→ Containerized installation with Docker${RESET}"
+    echo -e "     ${DIM}Containerized installation with Docker Compose${RESET}"
     echo -e ""
     echo -e "  ${CYAN}${EMOJI_SERVER} [2] Traditional Deployment${RESET}"
-    echo -e "     ${WHITE}→ Direct installation on host system${RESET}"
+    echo -e "     ${DIM}Direct installation on host system${RESET}"
     echo -e ""
     echo -e "  ${YELLOW}${EMOJI_MAG} [3] System Diagnostics${RESET}"
     echo -e "  ${MAGENTA}${EMOJI_EYES} [4] View Installation Log${RESET}"
-    echo -e ""
     echo -e "  ${RED}${EMOJI_WARN} [5] Uninstall Options${RESET}"
     echo -e ""
     echo -e "  ${WHITE}${EMOJI_WAVE} [0] Exit${RESET}"
     echo -e ""
-    echo -e "${KS_ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
-
-show_diagnostics() {
-    log_step "System Diagnostics"
-    
-    echo -e "${CYAN}${EMOJI_COMPUTER}  System Information${RESET}"
-    echo -e "${WHITE}  OS: ${KS_BLUE}$(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2)${RESET}"
-    echo -e "${WHITE}  Kernel: ${KS_BLUE}$(uname -r)${RESET}"
-    echo -e "${WHITE}  Architecture: ${KS_BLUE}$(uname -m)${RESET}"
-    echo -e "${WHITE}  Uptime: ${KS_BLUE}$(uptime -p | sed 's/up //')${RESET}"
-    
-    echo -e "\n${CYAN}${EMOJI_DATABASE}  Resources${RESET}"
-    echo -e "${WHITE}  CPU: ${KS_BLUE}$(nproc) cores${RESET}"
-    echo -e "${WHITE}  Memory: ${KS_BLUE}$(free -h | awk '/^Mem:/ {print $3 "/" $2}')${RESET}"
-    echo -e "${WHITE}  Disk: ${KS_BLUE}$(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 " used)"}')${RESET}"
-    
-    echo -e "\n${CYAN}${EMOJI_NETWORK}  Network${RESET}"
-    echo -e "${WHITE}  IP Address: ${KS_BLUE}$(hostname -I | awk '{print $1}')${RESET}"
-    echo -e "${WHITE}  Public IP: ${KS_BLUE}$(curl -s ifconfig.me)${RESET}"
-    
-    echo -e "\n${GREEN}${EMOJI_CHECK}  Diagnostics complete${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
 }
 
 # ============================================================================
@@ -555,78 +576,109 @@ show_diagnostics() {
 # ============================================================================
 install_docker_flow() {
     show_banner
-    echo -e "${KS_GREEN}${EMOJI_ROCKET}  Starting Docker Deployment ${EMOJI_ROCKET}${RESET}\n"
+    echo -e "${KS_GREEN}${EMOJI_ROCKET}${BOLD}  DOCKER DEPLOYMENT ${EMOJI_ROCKET}${RESET}\n"
     
+    # Step 1: Validate system
     validate_system
+    
+    # Step 2: Update system
     update_system
     
-    # Install Docker
-    install_docker
+    # Step 3: Install Docker
+    install_docker_engine
     
-    # Install dependencies
-    install_packages curl wget unzip jq
+    # Step 4: Install additional tools
+    log_step "Installing Tools"
+    install_packages curl wget unzip jq git
     
-    # Deploy application
-    deploy_application "docker"
+    # Step 5: Create directory
+    echo -e "${BLUE}${EMOJI_FOLDER}  Creating installation directory...${RESET}"
+    show_whats_running "Creating directory" "mkdir -p $INSTALL_DIR && chmod 755 $INSTALL_DIR"
     
-    # Start services
-    deploy_with_docker
+    # Step 6: Download application
+    download_application
     
-    # Ask for configuration
-    echo -e "\n${CYAN}${EMOJI_GEAR}  Additional Configuration${RESET}"
-    read -p "$(echo -e "${WHITE}Configure Pterodactyl? (y/N): ${RESET}")" -n 1 -r
+    # Step 7: Start Docker containers
+    log_step "Starting Services"
+    
+    cd "$INSTALL_DIR"
+    
+    echo -e "${BLUE}${EMOJI_ROCKET}  Starting Docker containers...${RESET}"
+    if show_whats_running "Starting containers" "docker compose up -d"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Containers started successfully${RESET}"
+    else
+        log_error "Failed to start containers"
+        return 1
+    fi
+    
+    # Step 8: Wait for services
+    echo -e "${CYAN}${EMOJI_CLOCK}  Waiting for services to initialize...${RESET}"
+    for i in {1..5}; do
+        echo -ne "${KS_BLUE}.${RESET}"
+        sleep 2
+    done
+    echo -e " ${GREEN}${EMOJI_CHECK}${RESET}"
+    
+    # Step 9: Ask for additional configuration
+    echo -e "\n${KS_PURPLE}${EMOJI_GEAR}  Additional Configuration ${KS_ORANGE}══════════════════════════════════${RESET}"
+    
+    # Pterodactyl configuration
+    read -p "$(echo -e "${WHITE}${EMOJI_SERVER}  Configure Pterodactyl? (y/N): ${RESET}")" -n 1 -r
     echo
-    
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        read -p "$(echo -e "${WHITE}Pterodactyl URL: ${RESET}")" ptero_url
-        read -p "$(echo -e "${WHITE}Pterodactyl API Key: ${RESET}")" ptero_key
+        read -p "$(echo -e "${WHITE}  Pterodactyl Panel URL (e.g., https://panel.example.com): ${RESET}")" ptero_url
+        read -p "$(echo -e "${WHITE}  Pterodactyl API Key: ${RESET}")" ptero_key
         
         if [ -n "$ptero_url" ] && [ -n "$ptero_key" ]; then
             echo -e "${CYAN}${EMOJI_GEAR}  Configuring Pterodactyl...${RESET}"
-            docker exec -i mythicaldash_v3_backend php cli pterodactyl configure <<EOF
+            local config_cmd="docker exec -i mythicaldash_v3_backend php cli pterodactyl configure <<EOF
 y
 $ptero_url
 $ptero_key
 y
-EOF
+EOF"
+            if show_whats_running "Configuring Pterodactyl" "$config_cmd"; then
+                echo -e "${GREEN}${EMOJI_CHECK}  Pterodactyl configured${RESET}"
+            fi
         fi
     fi
     
-    # Cloudflare setup
-    read -p "$(echo -e "${WHITE}Setup Cloudflare Tunnel? (y/N): ${RESET}")" -n 1 -r
+    # Cloudflare configuration
+    read -p "$(echo -e "${WHITE}${EMOJI_NETWORK}  Setup Cloudflare Tunnel? (y/N): ${RESET}")" -n 1 -r
     echo
-    
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-        echo -e "${CYAN}${EMOJI_NETWORK}  Cloudflare Setup${RESET}"
-        read -p "$(echo -e "${WHITE}Tunnel Mode (full/semi): ${RESET}")" cf_mode
-        read -p "$(echo -e "${WHITE}Hostname (e.g., dash.example.com): ${RESET}")" cf_hostname
+        echo -e "${CYAN}${EMOJI_NETWORK}  Cloudflare Tunnel Setup${RESET}"
+        read -p "$(echo -e "${WHITE}  Tunnel Mode (full/semi) [semi]: ${RESET}")" cf_mode
+        cf_mode=${cf_mode:-semi}
+        
+        read -p "$(echo -e "${WHITE}  Hostname (e.g., dash.example.com): ${RESET}")" cf_hostname
         
         if [ "$cf_mode" = "full" ]; then
-            read -p "$(echo -e "${WHITE}Cloudflare Email: ${RESET}")" cf_email
-            read -p "$(echo -e "${WHITE}Cloudflare API Key: ${RESET}")" cf_apikey
-            setup_cloudflare "full" "$cf_email" "$cf_apikey" "$cf_hostname"
+            read -p "$(echo -e "${WHITE}  Cloudflare Email: ${RESET}")" cf_email
+            read -p "$(echo -e "${WHITE}  Cloudflare API Key: ${RESET}")" cf_apikey
+            # Simplified Cloudflare setup
+            echo -e "${YELLOW}${EMOJI_INFO}  Full Cloudflare setup would be implemented here${RESET}"
         else
-            setup_cloudflare "semi" "" "" "$cf_hostname"
+            echo -e "${YELLOW}${EMOJI_INFO}  Manual Cloudflare configuration required${RESET}"
+            echo -e "${DIM}  Please configure tunnel manually in Cloudflare dashboard${RESET}"
         fi
     fi
     
     # Completion
-    echo -e "\n${KS_GREEN}${EMOJI_PARTY}  DEPLOYMENT COMPLETE! ${EMOJI_PARTY}${RESET}"
-    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
-    echo -e "${WHITE}${EMOJI_LINK}  Access your dashboard at: ${KS_BLUE}http://localhost:4830${RESET}"
-    echo -e "${WHITE}${EMOJI_FOLDER}  Installation directory: ${KS_BLUE}$INSTALL_DIR${RESET}"
-    echo -e "${WHITE}${EMOJI_EYES}  View logs: ${KS_BLUE}tail -f $LOG_FILE${RESET}"
-    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+    show_completion_message "docker"
 }
 
 install_traditional_flow() {
     show_banner
-    echo -e "${KS_GREEN}${EMOJI_ROCKET}  Starting Traditional Deployment ${EMOJI_ROCKET}${RESET}\n"
+    echo -e "${KS_GREEN}${EMOJI_ROCKET}${BOLD}  TRADITIONAL DEPLOYMENT ${EMOJI_ROCKET}${RESET}\n"
     
+    # Step 1: Validate system
     validate_system
+    
+    # Step 2: Update system
     update_system
     
-    # Install packages
+    # Step 3: Install packages
     log_step "Installing System Packages"
     
     local packages=(
@@ -634,37 +686,92 @@ install_traditional_flow() {
         nginx php8.3 php8.3-fpm php8.3-mysql
         php8.3-mbstring php8.3-xml php8.3-curl
         php8.3-zip php8.3-gd php8.3-bcmath
-        redis-server composer nodejs npm
+        php8.3-redis redis-server 
+        composer nodejs npm
         curl wget unzip jq git
     )
     
     install_packages "${packages[@]}"
     
-    # Setup database
+    # Step 4: Setup database
     setup_database
     
-    # Deploy application
-    deploy_application "traditional"
+    # Step 5: Create directory
+    echo -e "${BLUE}${EMOJI_FOLDER}  Creating installation directory...${RESET}"
+    show_whats_running "Creating directory" "mkdir -p $INSTALL_DIR && chmod 755 $INSTALL_DIR"
     
-    # Setup Nginx
-    setup_nginx
+    # Step 6: Download application
+    download_application
     
-    # Install composer dependencies
-    log_step "Installing PHP Dependencies"
+    # Step 7: Setup Nginx
+    log_step "Web Server Configuration"
+    
+    echo -e "${BLUE}${EMOJI_NETWORK}  Configuring Nginx...${RESET}"
+    
+    cat > /etc/nginx/sites-available/mythicaldash <<EOF
+server {
+    listen 80;
+    server_name _;
+    root $INSTALL_DIR/public;
+    index index.php index.html index.htm;
+    
+    location / {
+        try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+    
+    location ~ \.php\$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF
+    
+    show_whats_running "Creating Nginx config" "ln -sf /etc/nginx/sites-available/mythicaldash /etc/nginx/sites-enabled/"
+    show_whats_running "Removing default site" "rm -f /etc/nginx/sites-enabled/default"
+    
+    if show_whats_running "Testing Nginx config" "nginx -t"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Nginx configuration valid${RESET}"
+    fi
+    
+    if show_whats_running "Reloading Nginx" "systemctl reload nginx"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Nginx reloaded${RESET}"
+    fi
+    
+    # Step 8: Install PHP dependencies
+    log_step "PHP Dependencies"
+    
     cd "$INSTALL_DIR"
-    run_command "composer install --no-dev --optimize-autoloader" \
-        "Installing Composer packages" true
     
-    # Setup application
-    log_step "Configuring Application"
-    run_silent "cp .env.example .env" "Creating environment file"
-    run_command "php artisan key:generate" "Generating application key" false
+    echo -e "${BLUE}${EMOJI_HAMMER}  Installing Composer dependencies...${RESET}"
+    if show_whats_running "Installing dependencies" "composer install --no-dev --optimize-autoloader"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Dependencies installed${RESET}"
+    fi
     
-    # Setup database in app
-    export $(cat /etc/mythicaldash/db.conf | xargs)
+    # Step 9: Setup application
+    log_step "Application Configuration"
+    
+    echo -e "${BLUE}${EMOJI_GEAR}  Configuring application...${RESET}"
+    
+    # Setup environment
+    if [ -f ".env.example" ]; then
+        show_whats_running "Creating environment file" "cp .env.example .env"
+    fi
+    
+    # Generate key
+    if show_whats_running "Generating application key" "php artisan key:generate"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Application key generated${RESET}"
+    fi
+    
+    # Setup database in .env
+    source /etc/mythicaldash/db.conf
     cat > "$INSTALL_DIR/.env" <<EOF
 APP_ENV=production
+APP_DEBUG=false
+APP_URL=http://$(hostname -I | awk '{print $1}')
 APP_KEY=
+
 DB_CONNECTION=mysql
 DB_HOST=$DB_HOST
 DB_PORT=$DB_PORT
@@ -673,30 +780,68 @@ DB_USERNAME=$DB_USER
 DB_PASSWORD=$DB_PASS
 EOF
     
-    run_command "php artisan migrate --force" "Running migrations" true
-    run_command "php artisan storage:link" "Linking storage" false
+    # Run migrations
+    echo -e "${BLUE}${EMOJI_DATABASE}  Setting up database...${RESET}"
+    if show_whats_running "Running migrations" "php artisan migrate --force"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Database migrations completed${RESET}"
+    fi
+    
+    # Link storage
+    show_whats_running "Linking storage" "php artisan storage:link"
     
     # Setup cron
-    log_step "Setting up Scheduled Tasks"
-    (crontab -l 2>/dev/null; echo "* * * * * cd $INSTALL_DIR && php artisan schedule:run >> /dev/null 2>&1") | crontab -
-    log_success "Cron job added"
+    log_step "Scheduled Tasks"
+    
+    echo -e "${BLUE}${EMOJI_CLOCK}  Setting up cron job...${RESET}"
+    local cron_cmd="(crontab -l 2>/dev/null; echo \"* * * * * cd $INSTALL_DIR && php artisan schedule:run >> /dev/null 2>&1\") | crontab -"
+    if show_whats_running "Adding cron job" "$cron_cmd"; then
+        echo -e "${GREEN}${EMOJI_CHECK}  Cron job configured${RESET}"
+    fi
     
     # Completion
-    echo -e "\n${KS_GREEN}${EMOJI_PARTY}  DEPLOYMENT COMPLETE! ${EMOJI_PARTY}${RESET}"
-    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
-    echo -e "${WHITE}${EMOJI_LINK}  Access your dashboard at: ${KS_BLUE}http://$(hostname -I | awk '{print $1}')${RESET}"
-    echo -e "${WHITE}${EMOJI_KEY}  Database config: ${KS_BLUE}/etc/mythicaldash/db.conf${RESET}"
-    echo -e "${WHITE}${EMOJI_FOLDER}  Installation directory: ${KS_BLUE}$INSTALL_DIR${RESET}"
-    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+    show_completion_message "traditional"
+}
+
+show_completion_message() {
+    local mode="$1"
+    
+    echo -e "\n${KS_GREEN}${EMOJI_PARTY}${BOLD}  DEPLOYMENT COMPLETE! ${EMOJI_PARTY}${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
+    
+    if [ "$mode" = "docker" ]; then
+        echo -e "${WHITE}${EMOJI_LINK}  Dashboard URL: ${KS_BLUE}http://localhost:4830${RESET}"
+        echo -e "${WHITE}${EMOJI_DOCKER}  Container Status: ${KS_BLUE}docker ps${RESET}"
+        echo -e "${WHITE}${EMOJI_EYES}  View Logs: ${KS_BLUE}docker logs mythicaldash_v3_backend${RESET}"
+    else
+        echo -e "${WHITE}${EMOJI_LINK}  Dashboard URL: ${KS_BLUE}http://$(hostname -I | awk '{print $1}')${RESET}"
+        echo -e "${WHITE}${EMOJI_KEY}  Database Config: ${KS_BLUE}/etc/mythicaldash/db.conf${RESET}"
+        echo -e "${WHITE}${EMOJI_EYES}  Nginx Config: ${KS_BLUE}/etc/nginx/sites-available/mythicaldash${RESET}"
+    fi
+    
+    echo -e ""
+    echo -e "${WHITE}${EMOJI_FOLDER}  Installation Directory: ${KS_BLUE}$INSTALL_DIR${RESET}"
+    echo -e "${WHITE}${EMOJI_FILE}  Installation Log: ${KS_BLUE}$LOG_FILE${RESET}"
+    echo -e ""
+    echo -e "${YELLOW}${EMOJI_BELL}  Next Steps:${RESET}"
+    echo -e "${DIM}  1. Access your dashboard at the URL above${RESET}"
+    echo -e "${DIM}  2. Configure your administrator account${RESET}"
+    echo -e "${DIM}  3. Set up SSL/TLS certificates for production${RESET}"
+    echo -e "${DIM}  4. Configure backups and monitoring${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${KS_GREEN}${EMOJI_SPARKLES}  Thank you for choosing KS HOSTING BY KSGAMING! ${EMOJI_SPARKLES}${RESET}\n"
 }
 
 # ============================================================================
 # MAIN PROGRAM
 # ============================================================================
 main() {
-    # Initialize
+    # Initialize logging
     mkdir -p $(dirname "$LOG_FILE")
-    echo "=== Installation started at $(date) ===" > "$LOG_FILE"
+    echo "=== KS HOSTING Deployment started at $(date) ===" > "$LOG_FILE"
+    echo "=== Script Version: $SCRIPT_VERSION ===" >> "$LOG_FILE"
+    
+    # Create config directory
+    mkdir -p /etc/mythicaldash
     
     while true; do
         show_banner
@@ -715,40 +860,55 @@ main() {
                 ;;
             3)
                 show_banner
-                show_diagnostics
-                read -p "$(echo -e "\n${WHITE}Press Enter to continue...${RESET}")" _
+                echo -e "${CYAN}${EMOJI_MAG}  System Diagnostics${RESET}"
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
+                echo -e "${WHITE}OS: $(lsb_release -ds 2>/dev/null || echo "Unknown")${RESET}"
+                echo -e "${WHITE}Kernel: $(uname -r)${RESET}"
+                echo -e "${WHITE}CPU: $(nproc) cores${RESET}"
+                echo -e "${WHITE}Memory: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')${RESET}"
+                echo -e "${WHITE}Disk: $(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 ")"}')${RESET}"
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
+                read -p "$(echo -e "${WHITE}Press Enter to continue...${RESET}")" _
                 ;;
             4)
                 show_banner
-                echo -e "${CYAN}${EMOJI_EYES}  Installation Log (last 20 lines)${RESET}"
-                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
-                tail -20 "$LOG_FILE"
-                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
-                read -p "$(echo -e "\n${WHITE}Press Enter to continue...${RESET}")" _
+                echo -e "${CYAN}${EMOJI_EYES}  Installation Log${RESET}"
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
+                if [ -f "$LOG_FILE" ]; then
+                    tail -30 "$LOG_FILE"
+                else
+                    echo -e "${YELLOW}No log file found${RESET}"
+                fi
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
+                read -p "$(echo -e "${WHITE}Press Enter to continue...${RESET}")" _
                 ;;
             5)
                 show_banner
                 echo -e "${RED}${EMOJI_WARN}  Uninstall Options${RESET}"
-                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
                 echo -e "${WHITE}[1] Remove Docker installation${RESET}"
                 echo -e "${WHITE}[2] Remove Traditional installation${RESET}"
                 echo -e "${WHITE}[3] Back to main menu${RESET}"
-                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════${RESET}"
                 read -p "$(echo -e "${WHITE}Select: ${RESET}")" uninstall_choice
                 
                 case $uninstall_choice in
                     1)
                         echo -e "${RED}${EMOJI_WARN}  Removing Docker installation...${RESET}"
-                        run_silent "cd $INSTALL_DIR && docker compose down -v" "Stopping containers"
-                        run_silent "rm -rf $INSTALL_DIR" "Removing files"
-                        log_success "Docker installation removed"
+                        if [ -d "$INSTALL_DIR" ]; then
+                            cd "$INSTALL_DIR" && show_whats_running "Stopping containers" "docker compose down -v"
+                            show_whats_running "Removing files" "rm -rf $INSTALL_DIR"
+                            echo -e "${GREEN}${EMOJI_CHECK}  Docker installation removed${RESET}"
+                        else
+                            echo -e "${YELLOW}${EMOJI_INFO}  Installation not found${RESET}"
+                        fi
                         ;;
                     2)
                         echo -e "${RED}${EMOJI_WARN}  Removing Traditional installation...${RESET}"
-                        run_silent "rm -rf $INSTALL_DIR" "Removing application"
-                        run_silent "mysql -e 'DROP DATABASE IF EXISTS mythicaldash'" "Removing database"
-                        run_silent "rm -f /etc/nginx/sites-{available,enabled}/mythicaldash" "Removing Nginx config"
-                        log_success "Traditional installation removed"
+                        show_whats_running "Removing application" "rm -rf $INSTALL_DIR"
+                        show_whats_running "Removing database" "mysql -e 'DROP DATABASE IF EXISTS mythicaldash'"
+                        show_whats_running "Removing Nginx config" "rm -f /etc/nginx/sites-{available,enabled}/mythicaldash"
+                        echo -e "${GREEN}${EMOJI_CHECK}  Traditional installation removed${RESET}"
                         ;;
                 esac
                 ;;
@@ -763,13 +923,6 @@ main() {
                 ;;
         esac
     done
-    
-    # Final message
-    echo -e "\n${KS_GREEN}${EMOJI_SPARKLES}  Installation completed successfully! ${EMOJI_SPARKLES}${RESET}"
-    echo -e "${KS_BLUE}══════════════════════════════════════════════════════════${RESET}"
-    echo -e "${WHITE}Need help? Check the documentation or contact support.${RESET}"
-    echo -e "${WHITE}Log file: ${KS_BLUE}$LOG_FILE${RESET}"
-    echo -e "${KS_BLUE}══════════════════════════════════════════════════════════${RESET}"
 }
 
 # ============================================================================
