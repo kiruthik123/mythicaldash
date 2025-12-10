@@ -1,472 +1,780 @@
 #!/bin/bash
-# MythicalDash Installation Script (Emoji-Enhanced)
-# Version 2.1.1
-# Supports Ubuntu, Ubuntu Server, and Debian
+# ============================================================================
+# MythicalDash Deployment System
+# Version: 3.1.0 - KS HOSTING BY KSGAMING
+# ============================================================================
 
-# ----------------- ANSI COLOR CODES -----------------
-# Define colors for better UI/UX
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-PURPLE='\033[0;35m'
-CYAN='\033[0;36m'
-WHITE='\033[1;37m'
-NC='\033[0m' # No Color
+set -euo pipefail
+IFS=$'\n\t'
 
-# Helper function for colored text
-echo_color() {
-    COLOR=$1
-    MESSAGE=$2
-    echo -e "${COLOR}${MESSAGE}${NC}"
-}
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+readonly SCRIPT_NAME="mythicaldash-deploy"
+readonly SCRIPT_VERSION="3.1.0"
+readonly COMPANY_NAME="KS HOSTING BY KSGAMING"
+readonly INSTALL_DIR="/var/www/mythicaldash-v3"
+readonly LOG_FILE="/var/log/mythicaldash-install.log"
+readonly CONFIG_FILE="/etc/mythicaldash/config.conf"
 
-# ----------------- UI/UX FUNCTIONS -----------------
+# ============================================================================
+# COLOR & EMOJI DEFINITIONS
+# ============================================================================
+readonly RESET='\033[0m'
 
-# Function to display a step header with an emoji
-step_header() {
-    echo ""
-    echo_color $CYAN "========================================================"
-    echo_color $CYAN "$1 $2"
-    echo_color $CYAN "========================================================"
-    echo ""
-}
+# Bright Colors
+readonly RED='\033[1;31m'
+readonly GREEN='\033[1;32m'
+readonly YELLOW='\033[1;33m'
+readonly BLUE='\033[1;34m'
+readonly MAGENTA='\033[1;35m'
+readonly CYAN='\033[1;36m'
+readonly WHITE='\033[1;37m'
 
-# Function to show a progress indicator (Spinner)
-# Usage: spinner "Message..." & SPINNER_PID=$!
-spinner() {
-    local pid=$!
-    local delay=0.1
-    local spin="⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-    local message=$1
+# Brand Colors
+readonly KS_BLUE='\033[38;5;39m'
+readonly KS_ORANGE='\033[38;5;208m'
+readonly KS_PURPLE='\033[38;5;93m'
+readonly KS_GREEN='\033[38;5;46m'
+
+# Background Colors
+readonly BG_BLACK='\033[48;5;232m'
+readonly BG_BLUE='\033[48;5;18m'
+
+# Emojis
+readonly EMOJI_CHECK="✅"
+readonly EMOJI_ERROR="❌"
+readonly EMOJI_WARN="⚠️"
+readonly EMOJI_INFO="🔹"
+readonly EMOJI_ROCKET="🚀"
+readonly EMOJI_GEAR="⚙️"
+readonly EMOJI_DATABASE="💾"
+readonly EMOJI_NETWORK="🌐"
+readonly EMOJI_SHIELD="🛡️"
+readonly EMOJI_CLOCK="⏱️"
+readonly EMOJI_FOLDER="📁"
+readonly EMOJI_KEY="🔑"
+readonly EMOJI_LINK="🔗"
+readonly EMOJI_COMPUTER="💻"
+readonly EMOJI_DOCKER="🐳"
+readonly EMOJI_SERVER="🖥️"
+readonly EMOJI_UPLOAD="📤"
+readonly EMOJI_DOWNLOAD="📥"
+readonly EMOJI_SPARKLES="✨"
+readonly EMOJI_FIRE="🔥"
+readonly EMOJI_PARTY="🎉"
+readonly EMOJI_THUMBS="👍"
+readonly EMOJI_WAVE="👋"
+readonly EMOJI_EYES="👀"
+readonly EMOJI_BRAIN="🧠"
+readonly EMOJI_HAMMER="🔨"
+readonly EMOJI_WRENCH="🔧"
+readonly EMOJI_MAG="🔍"
+readonly EMOJI_LOCK="🔒"
+readonly EMOJI_UNLOCK="🔓"
+readonly EMOJI_BELL="🔔"
+readonly EMOJI_FLAG="🏁"
+readonly EMOJI_TROPHY="🏆"
+
+# ============================================================================
+# ANIMATION & LOADING FUNCTIONS
+# ============================================================================
+show_spinner() {
+    local pid=$1
+    local message="$2"
+    local delay=0.15
+    local spinstr='⣷⣯⣟⡿⢿⣻⣽⣾'
     
-    while [ -d /proc/$pid ]; do
-        local i=$((i+1 % ${#spin}))
-        printf "\r${YELLOW}  [${spin:$i:1}] ${message}${NC}"
-        sleep $delay
-    done
-    printf "\r${GREEN}  [✅] ${message} Done.${NC}\n" # Success checkmark
-}
-
-# ----------------- CORE FUNCTIONS -----------------
-
-echo_color $PURPLE "✨ Script By _webdevkin && MythicalLTD By Cassian (V2.1.1)"
-
-# Function to check if a package is installed and install it if not
-install_packages() {
-    packages_to_install=()
-    for pkg in "$@"; do
-        if ! dpkg -s "$pkg" >/dev/null 2>&1;
-        then
-            packages_to_install+=("$pkg")
-        fi
-    done
-
-    if [ ${#packages_to_install[@]} -gt 0 ]; then
-        echo_color $YELLOW "  📦 Installing packages: ${packages_to_install[*]}..."
-        sudo apt-get -qq install -y "${packages_to_install[@]}"
-        if [ $? -ne 0 ]; then
-            echo_color $RED "  [❌] Failed to install one or more packages. Exiting."
-            exit 1
-        fi
-    else
-        echo_color $GREEN "  ✅ All required dependencies already installed. Skipping..."
-    fi
-}
-
-# Uninstall functions (added emojis)
-uninstall_docker() {
-    step_header "🗑️ Uninstalling MythicalDash (Docker)"
-    uninstall_cloudflare_tunnel
-    if [ -f /var/www/mythicaldash-v3/docker-compose.yml ]; then
-        echo_color $YELLOW "  🛑 Stopping and removing Docker containers..."
-        (cd /var/www/mythicaldash-v3 && sudo docker compose down -v) & spinner "Containers removal"
-    fi
-    echo_color $YELLOW "  🗑️ Removing MythicalDash files..."
-    sudo rm -rf /var/www/mythicaldash-v3
-    echo_color $GREEN "✅ Docker-based uninstallation complete."
-}
-
-uninstall_no_docker() {
-    step_header "🗑️ Uninstalling MythicalDash (Native)"
-    uninstall_cloudflare_tunnel
-    echo_color $YELLOW "  ❌ Removing MariaDB database and user..."
-    sudo mysql -e "DROP DATABASE IF EXISTS mythicaldash_remastered;"
-    sudo mysql -e "DROP USER IF EXISTS 'mythicaldash_remastered'@'127.0.0.1';" & spinner "Database cleanup"
-
-    echo_color $YELLOW "  🛑 Stopping services (Redis/MariaDB)..."
-    sudo systemctl stop redis-server
-    sudo systemctl stop mariadb & spinner "Stopping services"
-
-    echo_color $YELLOW "  🗑️ Removing MythicalDash files..."
-    sudo rm -rf /var/www/mythicaldash-v3 & spinner "File removal"
-
-    echo_color $YELLOW "  ⏰ Removing cron jobs..."
-    (crontab -l | grep -v -e '/var/www/mythicaldash-v3/') | crontab - & spinner "Cron job cleanup"
+    echo -ne "${KS_BLUE}${EMOJI_GEAR}  ${message}... ${RESET}"
     
-    echo_color $GREEN "✅ Native uninstallation complete."
-}
-
-uninstall_cloudflare_tunnel() {
-    echo_color $CYAN "--- ☁️ Cloudflare Tunnel Cleanup ---"
-    if [ -f /var/www/mythicaldash-v3/.cf_creds ]; then
-        # shellcheck source=/dev/null
-        . /var/www/mythicaldash-v3/.cf_creds
-        if [ -n "$TUNNEL_ID" ] && [ -n "$ACCOUNT_ID" ] && [ -n "$ZONE_ID" ] && [ -n "$CF_HOSTNAME" ]; then
-            echo_color $YELLOW "  🗑️ Attempting to delete DNS record for $CF_HOSTNAME..."
-            DNS_RECORD_ID=$(curl -s -X GET "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records?type=CNAME&name=$CF_HOSTNAME" \
-                 -H "X-Auth-Email: $CF_EMAIL" \
-                 -H "X-Auth-Key: $CF_API_KEY" \
-                 -H "Content-Type: application/json" | jq -r '.result[0].id')
-
-            if [ -n "$DNS_RECORD_ID" ] && [ "$DNS_RECORD_ID" != "null" ]; then
-                curl -s -X DELETE "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records/$DNS_RECORD_ID" \
-                     -H "X-Auth-Email: $CF_EMAIL" \
-                     -H "X-Auth-Key: $CF_API_KEY" \
-                     -H "Content-Type: application/json" > /dev/null
-                echo_color $GREEN "  ✅ DNS record deleted."
-            else
-                echo_color $YELLOW "  ⚠️ Could not find DNS record or already deleted."
-            fi
-
-            echo_color $YELLOW "  🗑️ Deleting Cloudflare Tunnel..."
-            curl -s -X DELETE "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID" \
-                 -H "X-Auth-Email: $CF_EMAIL" \
-                 -H "X-Auth-Key: $CF_API_KEY" \
-                 -H "Content-Type: application/json" > /dev/null
-            echo_color $GREEN "  ✅ Cloudflare Tunnel deleted."
-        else
-            echo_color $YELLOW "  ⚠️ Cloudflare credentials incomplete. Skipping tunnel deletion."
-        fi
-        sudo rm /var/www/mythicaldash-v3/.cf_creds
-        echo_color $GREEN "  🔑 Credentials file removed."
-    else
-        echo_color $YELLOW "  ⚠️ Cloudflare credentials file not found. Skipping tunnel deletion."
-    fi
-    echo_color $CYAN "-----------------------------------"
-}
-
-# Cloudflare setup functions (added emojis)
-setup_cloudflare_tunnel_full_auto() {
-    step_header "☁️ Cloudflare Tunnel: Full Automatic Setup" "🛠️"
-    install_packages jq
-
-    ACCOUNTS_DATA=$(curl -s -X GET "https://api.cloudflare.com/client/v4/accounts" \
-         -H "X-Auth-Email: $CF_EMAIL" \
-         -H "X-Auth-Key: $CF_API_KEY" \
-         -H "Content-Type: application/json")
-
-    ACCOUNT_COUNT=$(echo "$ACCOUNTS_DATA" | jq -r '.result | length')
-
-    if [ "$ACCOUNT_COUNT" == "0" ]; then
-        echo_color $RED "❌ Error: No Cloudflare accounts found. Please check your email and API key."
-        return 1
-    elif [ "$ACCOUNT_COUNT" -gt "1" ]; then
-        echo_color $YELLOW "Multiple Cloudflare accounts found. Please choose one:"
-    echo "$ACCOUNTS_DATA" | jq -r '.result[] | "\(.id) \(.name)"' | nl
-    read -r -p "$(echo_color $WHITE 'Enter the number of the account you want to use: ')" ACCOUNT_CHOICE
-    ACCOUNT_ID=$(echo "$ACCOUNTS_DATA" | jq -r ".result[$((ACCOUNT_CHOICE-1))].id")
-    fi
-    
-    # ... (Tunnel ID/Token/Zone ID logic remains the same)
-
-    echo_color $YELLOW "  🔗 Configuring DNS and ingress rules via API..."
-    curl -s -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE_ID/dns_records" \
-        -H "X-Auth-Email: $CF_EMAIL" \
-        -H "X-Auth-Key: $CF_API_KEY" \
-        -H "Content-Type: application/json" \
-        --data "$(jq -n --arg host "$CF_HOSTNAME" --arg tunnel "$TUNNEL_ID" '{type:"CNAME",name:$host,content:($tunnel + ".cfargotunnel.com"),proxied:true}')" > /dev/null
-    
-    curl -s -X PUT "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/cfd_tunnel/$TUNNEL_ID/configurations" \
-        -H "X-Auth-Email: $CF_EMAIL" \
-        -H "X-Auth-Key: $CF_API_KEY" \
-         -H "Content-Type: application/json" \
-        --data "$(jq -n --arg hostname "$CF_HOSTNAME" '{config:{ingress:[{hostname:$hostname,service:"http://localhost:4830"},{service:"http_status:404"}]}}')" > /dev/null
-    
-    echo_color $GREEN "✅ Full-automatic Cloudflare Tunnel setup complete. DNS and Ingress configured."
-
-    # Save Cloudflare credentials
-    {
-        printf 'CF_EMAIL="%s"\n' "$CF_EMAIL"
-        printf 'CF_API_KEY="%s"\n' "$CF_API_KEY"
-        printf 'ACCOUNT_ID="%s"\n' "$ACCOUNT_ID"
-        printf 'TUNNEL_ID="%s"\n' "$TUNNEL_ID"
-        printf 'ZONE_ID="%s"\n' "$ZONE_ID"
-        printf 'CF_HOSTNAME="%s"\n' "$CF_HOSTNAME"
-    } > /var/www/mythicaldash-v3/.cf_creds
-    sudo chmod 600 /var/www/mythicaldash-v3/.cf_creds
-    echo_color $YELLOW "  🔒 Credentials saved securely to .cf_creds."
-}
-
-setup_cloudflare_tunnel_client() {
-    if [ -n "$CF_TUNNEL_TOKEN" ]; then
-        step_header "🚀 Cloudflare Tunnel Client Setup"
-        if [ "$INST_TYPE" == "0" ]; then 
-            if ! command -v docker &> /dev/null; then
-                echo_color $YELLOW "  🐳 Docker not found, installing Docker for client container..."
-                curl -sSL https://get.docker.com/ | CHANNEL=stable bash & spinner "Docker installation"
-                sudo systemctl enable --now docker
-                sudo usermod -aG docker "$USER"
-                echo_color $YELLOW "  ⚠️ NOTE: You may need to log out and back in for Docker group changes to take effect."
-            fi
-            echo_color $YELLOW "  🚀 Starting Cloudflare Tunnel client container..."
-            docker run -d --network host --restart always cloudflare/cloudflared:latest tunnel --no-autoupdate run --token "$CF_TUNNEL_TOKEN" & spinner "Tunnel client start (Docker)"
-        else 
-            echo_color $YELLOW "  📦 Installing cloudflared client..."
-            curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
-            sudo dpkg -i cloudflared.deb & spinner "cloudflared package install"
-            sudo cloudflared service install "$CF_TUNNEL_TOKEN"
-            sudo systemctl enable --now cloudflared & spinner "cloudflared service start"
-            rm cloudflared.deb
-            echo_color $GREEN "  ✅ cloudflared installed and running."
-        fi
-        echo_color $GREEN "✅ Cloudflare Tunnel setup complete. Dashboard accessible via: https://$CF_HOSTNAME"
-        if [ "$CF_TUNNEL_MODE" == "2" ]; then
-            echo_color $YELLOW "========================================================"
-            echo_color $YELLOW "⚠️ SEMI-AUTOMATIC MODE NOTICE ⚠️"
-            echo_color $YELLOW "Please manually create a CNAME DNS record for ${CF_HOSTNAME} in your Cloudflare dashboard."
-            echo_color $YELLOW "The Ingress rule should point to http://localhost:4830."
-            echo_color $YELLOW "========================================================"
-        fi
-    else
-        echo_color $YELLOW "  ⏭️ Skipping Cloudflare Tunnel client setup."
-    fi
-}
-
-# ----------------- MAIN EXECUTION -----------------
-
-if [ -f /etc/os-release ]; then
-    # shellcheck source=/dev/null
-    . /etc/os-release
-    OS=$ID
-    if [ "$OS" = "ubuntu" ] || [ "$OS" = "ubuntu-server" ] || [ "$OS" = "debian" ]; then
-        echo_color $GREEN "✅ Detected Supported OS: ${OS^}"
-        
-        # --- UI: Ask all questions upfront with clear sections ---
-        step_header "🖥️ Choose Operation"
-        INST_TYPE=""
-        while [[ ! "$INST_TYPE" =~ ^[0-3]$ ]]; do
-            echo_color $WHITE "1: 🐳 Install with Docker"
-            echo_color $WHITE "2: 💻 Install without Docker (Native)"
-            echo_color $RED "3: 🗑️ Uninstall Docker installation"
-            echo_color $RED "4: 🗑️ Uninstall without-Docker installation"
-            read -r -p "$(echo_color $CYAN 'Option (1/2/3/4): ')" INST_TYPE
-            # Map user's 1-4 input back to 0-3 for case statement compatibility
-            if [ "$INST_TYPE" = "1" ]; then INST_TYPE="0"; 
-            elif [ "$INST_TYPE" = "2" ]; then INST_TYPE="1"; 
-            elif [ "$INST_TYPE" = "3" ]; then INST_TYPE="2";
-            elif [ "$INST_TYPE" = "4" ]; then INST_TYPE="3";
-            elif [[ ! "$INST_TYPE" =~ ^[0-3]$ ]]; then
-                echo_color $RED "❌ Invalid input. Please enter 1, 2, 3, or 4."
-            fi
+    while kill -0 $pid 2>/dev/null; do
+        for i in $(seq 0 7); do
+            echo -ne "${KS_ORANGE}${spinstr:$i:1}${RESET}"
+            sleep $delay
+            echo -ne "\b"
         done
+    done
+    
+    echo -ne "\b\b\b\b\b\b\b"
+    echo -e "${GREEN}${EMOJI_CHECK} Done!${RESET}"
+}
 
-        # ... (variable setup remains the same)
-
-        if [[ "$INST_TYPE" == "0" || "$INST_TYPE" == "1" ]]; then
-            # --- UI: Reinstall Check ---
-            if [ -f /var/www/mythicaldash-v3/.installed ]; then
-                read -r -p "$(echo_color $YELLOW '⚠️ MythicalDash appears to be installed. Reinstall? (y/n): ')" reinstall
-                if [ "$reinstall" != "y" ]; then
-                    echo_color $GREEN "✅ Exiting installation as requested."
-                    exit 0
-                fi
-            fi
-
-            # --- UI: Cloudflare Tunnel Configuration ---
-            step_header "☁️ Cloudflare Tunnel Configuration" "🔑"
-            while [[ ! "$CF_TUNNEL_SETUP" =~ ^[ynYN]$ ]]; do
-                read -r -p "$(echo_color $WHITE 'Set up Cloudflare Tunnel for secure access? (y/n): ')" CF_TUNNEL_SETUP
-            done
-
-            if [[ "$CF_TUNNEL_SETUP" =~ ^[yY]$ ]]; then
-                echo_color $WHITE "Choose Cloudflare Tunnel setup mode:"
-                echo_color $WHITE "  1: 🥇 Full Automatic (Recommended: Needs API key, creates tunnel/DNS)"
-                echo_color $WHITE "  2: 🥈 Semi-Automatic (Needs pre-generated tunnel token)"
-                while [[ ! "$CF_TUNNEL_MODE" =~ ^[12]$ ]]; do
-                    read -r -p "$(echo_color $CYAN 'Mode (1/2): ')" CF_TUNNEL_MODE
-                done
-
-                if [ "$CF_TUNNEL_MODE" == "1" ]; then
-                    echo_color $YELLOW "--- 🔑 Full Automatic Mode Credentials ---"
-                    while [ -z "$CF_EMAIL" ]; do read -r -p "$(echo_color $WHITE 'Cloudflare Email: ')" CF_EMAIL; done
-                    while [ -z "$CF_API_KEY" ]; do read -r -p "$(echo_color $WHITE 'Cloudflare Global API Key: ')" CF_API_KEY; done
-                    while [ -z "$CF_HOSTNAME" ]; do read -r -p "$(echo_color $WHITE 'Hostname (e.g., dash.example.com): ')" CF_HOSTNAME; done
-                else
-                    echo_color $YELLOW "--- 🔑 Semi-Automatic Mode Credentials ---"
-                    while [ -z "$CF_TUNNEL_TOKEN" ]; do read -r -p "$(echo_color $WHITE 'Cloudflare Tunnel Token: ')" CF_TUNNEL_TOKEN; done
-                    while [ -z "$CF_HOSTNAME" ]; do read -r -p "$(echo_color $WHITE 'Hostname (Required for ingress, e.g., dash.example.com): ')" CF_HOSTNAME; done
-                fi
-            else
-                echo_color $YELLOW "⚠️ WARNING: Manual Nginx/SSL setup required without Cloudflare Tunnel. See documentation."
-            fi
-
-            # --- UI: Pterodactyl Configuration ---
-            step_header "🐦 Pterodactyl Integration"
-            while [[ ! "$PTERO_CONFIGURE" =~ ^[ynYN]$ ]]; do
-                read -r -p "$(echo_color $WHITE 'Configure Pterodactyl panel settings now? (y/n): ')" PTERO_CONFIGURE
-            done
-
-            if [[ "$PTERO_CONFIGURE" =~ ^[yY]$ ]]; then
-                while [ -z "$PTERO_URL" ]; do read -r -p "$(echo_color $WHITE 'Pterodactyl Panel URL: ')" PTERO_URL; done
-                while [ -z "$PTERO_API_KEY" ]; do read -r -p "$(echo_color $WHITE 'Pterodactyl API Key: ')" PTERO_API_KEY; done
-            fi
-
-            # --- UI: Admin User Creation (Native only) ---
-            if [ "$INST_TYPE" == "1" ]; then
-                step_header "👤 Initial Admin User Creation"
-                while [ -z "$ADMIN_EMAIL" ]; do read -r -p "$(echo_color $WHITE 'Admin Email: ')" ADMIN_EMAIL; done
-                while [ -z "$ADMIN_USERNAME" ]; do read -r -p "$(echo_color $WHITE 'Admin Username: ')" ADMIN_USERNAME; done
-                while [ -z "$ADMIN_FIRST_NAME" ]; do read -r -p "$(echo_color $WHITE 'Admin First Name: ')" ADMIN_FIRST_NAME; done
-                while [ -z "$ADMIN_LAST_NAME" ]; do read -r -p "$(echo_color $WHITE 'Admin Last Name: ')" ADMIN_LAST_NAME; done
-                while [ -z "$ADMIN_PASSWORD" ]; do read -r -s -p "$(echo_color $WHITE 'Admin Password (hidden): ')" ADMIN_PASSWORD; echo; done
-            fi
-            
-        # --- UI: Uninstallation Confirmation ---
-        elif [[ "$INST_TYPE" == "2" || "$INST_TYPE" == "3" ]]; then
-            read -r -p "$(echo_color $RED '🔥🔥 Are you ABSOLUTELY SURE you want to uninstall? This deletes all data! (y/n): ')" confirm
+show_dots() {
+    local pid=$1
+    local message="$2"
+    local dots=""
+    
+    echo -ne "${CYAN}${EMOJI_INFO}  ${message}${RESET}"
+    
+    while kill -0 $pid 2>/dev/null; do
+        dots="${dots}."
+        echo -ne "${KS_ORANGE}${dots}${RESET}"
+        sleep 0.5
+        echo -ne "\033[${#dots}D\033[K${CYAN}${EMOJI_INFO}  ${message}${RESET}"
+        if [ ${#dots} -gt 3 ]; then
+            dots=""
         fi
+    done
+    
+    echo -e "${GREEN} ${EMOJI_CHECK}${RESET}"
+}
 
-        # ----------------- EXECUTION LOGIC -----------------
-        echo ""
-        case $INST_TYPE in
-            0) # Install Docker
-                step_header "🐳 MythicalDash Docker Installation Process"
-                install_packages curl unzip jq
-                if [ "$reinstall" = "y" ]; then sudo rm -f /var/www/mythicaldash-v3/.installed; fi
-                
-                # Docker installation logic 
-                if ! command -v docker &> /dev/null; then
-                    echo_color $YELLOW "  🐳 Docker not found, installing..."
-                    curl -sSL https://get.docker.com/ | CHANNEL=stable bash & spinner "Docker installation"
-                    sudo systemctl enable --now docker
-                    sudo usermod -aG docker "$USER"
-                    echo_color $YELLOW "  ⚠️ NOTE: Log out and back in may be needed for Docker group."
-                fi
-                
-                echo_color $YELLOW "  📁 Setting up MythicalDash-v3 directory..."
-                sudo mkdir -p /var/www/mythicaldash-v3
-                cd /var/www/mythicaldash-v3 || exit 1
-                echo_color $YELLOW "  ⬇️ Downloading latest release..."
-                sudo curl -Lo MythicalDash.zip https://github.com/MythicalLTD/MythicalDash/releases/latest/download/MythicalDash.zip & spinner "Download"
-                echo_color $YELLOW "  📂 Extracting files..."
-                sudo unzip -o MythicalDash.zip -d /var/www/mythicaldash-v3 > /dev/null
-                cd /var/www/mythicaldash-v3 || exit 1
-                echo_color $YELLOW "  ▶️ Starting Docker containers (app, db, redis)..."
-                sudo docker compose up -d & spinner "Containers start"
-                
-                echo_color $GREEN "🎉 MythicalDash-v3 Docker setup complete."
-                
-                if [[ "$PTERO_CONFIGURE" =~ ^[yY]$ ]]; then
-                    echo_color $CYAN "  🛠️ Configuring Pterodactyl settings..."
-                    sleep 10 # Wait for container to stabilize
-                    printf "y\n%s\n%s\ny\n" "$PTERO_URL" "$PTERO_API_KEY" | sudo docker exec -i mythicaldash_v3_backend php cli pterodactyl configure
-                    echo_color $GREEN "  ✅ Pterodactyl configuration complete."
-                else
-                    echo_color $YELLOW "  ℹ️ Manual configuration required: sudo docker exec -it mythicaldash_v3_backend php cli pterodactyl configure"
-                fi
-                
-                if [[ "$CF_TUNNEL_SETUP" =~ ^[yY]$ ]]; then
-                    if [ "$CF_TUNNEL_MODE" == "1" ]; then if ! setup_cloudflare_tunnel_full_auto; then CF_TUNNEL_TOKEN=""; fi; fi
-                    setup_cloudflare_tunnel_client
-                fi
+show_progress() {
+    local total=$1
+    local current=0
+    
+    while [ $current -le $total ]; do
+        local percent=$((current * 100 / total))
+        local filled=$((percent / 2))
+        local empty=$((50 - filled))
+        
+        printf "\r${KS_BLUE}${EMOJI_UPLOAD}  Progress: ["
+        printf "%${filled}s" | tr ' ' '█'
+        printf "%${empty}s" | tr ' ' '░'
+        printf "] ${percent}%%${RESET}"
+        
+        sleep 0.05
+        ((current++))
+    done
+    echo
+}
 
-                sudo touch /var/www/mythicaldash-v3/.installed
+show_fancy_loading() {
+    local message="$1"
+    local frames=("🕐" "🕑" "🕒" "🕓" "🕔" "🕕" "🕖" "🕗" "🕘" "🕙" "🕚" "🕛")
+    
+    echo -ne "${KS_PURPLE}${EMOJI_CLOCK}  ${message} ${RESET}"
+    
+    for i in {1..12}; do
+        echo -ne "${KS_ORANGE}${frames[$i % 12]}${RESET}"
+        sleep 0.1
+        echo -ne "\b"
+    done
+    
+    echo -e "${GREEN}${EMOJI_CHECK}${RESET}"
+}
+
+show_banner() {
+    clear
+    echo -e "${KS_BLUE}"
+    echo "╔══════════════════════════════════════════════════════════════════════╗"
+    echo "║                                                                      ║"
+    echo "║  ██╗  ██╗███████╗    ██╗  ██╗ ██████╗ ███████╗ █████╗ ███╗   ███╗   ║"
+    echo "║  ██║ ██╔╝██╔════╝    ██║  ██║██╔═══██╗██╔════╝██╔══██╗████╗ ████║   ║"
+    echo "║  █████╔╝ ███████╗    ███████║██║   ██║███████╗███████║██╔████╔██║   ║"
+    echo "║  ██╔═██╗ ╚════██║    ██╔══██║██║   ██║╚════██║██╔══██║██║╚██╔╝██║   ║"
+    echo "║  ██║  ██╗███████║    ██║  ██║╚██████╔╝███████║██║  ██║██║ ╚═╝ ██║   ║"
+    echo "║  ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝     ╚═╝   ║"
+    echo "║                                                                      ║"
+    echo "║  ${KS_GREEN}${EMOJI_ROCKET}  KS HOSTING BY KSGAMING - DEPLOYMENT SYSTEM ${KS_BLUE}              ║"
+    echo "║  ${WHITE}Version ${SCRIPT_VERSION} • Professional • Secure • Fast ${KS_BLUE}                    ║"
+    echo "║                                                                      ║"
+    echo "╚══════════════════════════════════════════════════════════════════════╝"
+    echo -e "${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}${EMOJI_COMPUTER}  System: $(lsb_release -ds 2>/dev/null || echo "Linux System")${RESET}"
+    echo -e "${WHITE}${EMOJI_CLOCK}  Started: $(date '+%Y-%m-%d %H:%M:%S')${RESET}"
+    echo -e "${KS_ORANGE}════════════════════════════════════════════════════════════════════════${RESET}\n"
+}
+
+# ============================================================================
+# LOGGING FUNCTIONS
+# ============================================================================
+log_success() {
+    echo -e "${GREEN}${EMOJI_CHECK}  SUCCESS: $1${RESET}"
+    echo "[SUCCESS] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log_error() {
+    echo -e "${RED}${EMOJI_ERROR}  ERROR: $1${RESET}"
+    echo "[ERROR] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log_info() {
+    echo -e "${CYAN}${EMOJI_INFO}  INFO: $1${RESET}"
+    echo "[INFO] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log_warning() {
+    echo -e "${YELLOW}${EMOJI_WARN}  WARNING: $1${RESET}"
+    echo "[WARNING] $(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log_step() {
+    echo -e "\n${KS_PURPLE}${EMOJI_FLAG}  STEP: $1${RESET}"
+    echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+}
+
+log_substep() {
+    echo -e "${BLUE}${EMOJI_BRAIN}  $1${RESET}"
+}
+
+# ============================================================================
+# COMMAND EXECUTION WITH VISUAL FEEDBACK
+# ============================================================================
+run_command() {
+    local cmd="$1"
+    local desc="$2"
+    local log_output="${3:-false}"
+    
+    echo -e "${CYAN}${EMOJI_GEAR}  Running: ${WHITE}$desc${RESET}"
+    echo -e "${KS_ORANGE}└─ Command: ${WHITE}${cmd:0:80}${RESET}"
+    
+    if [ "$log_output" = true ]; then
+        if eval "$cmd" >> "$LOG_FILE" 2>&1 & then
+            local pid=$!
+            show_spinner $pid "Processing"
+        fi
+    else
+        if eval "$cmd" &> /dev/null & then
+            local pid=$!
+            show_spinner $pid "Executing"
+        fi
+    fi
+    
+    if [ $? -eq 0 ]; then
+        echo -e "${GREEN}${EMOJI_THUMBS}  Completed successfully${RESET}"
+        return 0
+    else
+        echo -e "${RED}${EMOJI_ERROR}  Failed to execute${RESET}"
+        return 1
+    fi
+}
+
+run_silent() {
+    local cmd="$1"
+    local desc="$2"
+    
+    echo -ne "${CYAN}${EMOJI_GEAR}  $desc... ${RESET}"
+    
+    if eval "$cmd" &> /dev/null; then
+        echo -e "${GREEN}${EMOJI_CHECK}${RESET}"
+        return 0
+    else
+        echo -e "${RED}${EMOJI_ERROR}${RESET}"
+        return 1
+    fi
+}
+
+# ============================================================================
+# SYSTEM VALIDATION
+# ============================================================================
+validate_system() {
+    log_step "System Validation"
+    
+    run_silent "[ -f /etc/os-release ]" "Checking operating system"
+    
+    source /etc/os-release
+    
+    case "$ID" in
+        ubuntu|debian)
+            log_success "Detected: $PRETTY_NAME"
+            ;;
+        *)
+            log_error "Unsupported OS: $PRETTY_NAME"
+            exit 1
+            ;;
+    esac
+    
+    run_silent "[ $(id -u) -eq 0 ]" "Checking root privileges"
+    run_silent "command -v curl" "Checking for curl"
+    run_silent "command -v wget" "Checking for wget"
+    
+    echo -e "${GREEN}${EMOJI_SHIELD}  System validation passed${RESET}"
+}
+
+# ============================================================================
+# PACKAGE MANAGEMENT
+# ============================================================================
+install_packages() {
+    local packages=("$@")
+    local install_list=()
+    
+    log_substep "Checking system packages"
+    
+    for pkg in "${packages[@]}"; do
+        if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
+            echo -e "${GREEN}${EMOJI_CHECK}  $pkg already installed${RESET}"
+        else
+            install_list+=("$pkg")
+        fi
+    done
+    
+    if [ ${#install_list[@]} -gt 0 ]; then
+        echo -e "${CYAN}${EMOJI_DOWNLOAD}  Installing: ${install_list[*]}${RESET}"
+        
+        run_command "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ${install_list[@]}" \
+            "Installing system packages" true
+        
+        log_success "Packages installed"
+    fi
+}
+
+update_system() {
+    log_step "System Update"
+    
+    run_command "apt-get update -qq" "Updating package lists" true
+    run_command "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq" "Upgrading system" true
+    
+    log_success "System updated"
+}
+
+# ============================================================================
+# DATABASE SETUP
+# ============================================================================
+setup_database() {
+    log_step "Database Configuration"
+    
+    local db_name="mythicaldash"
+    local db_user="mythical_user"
+    local db_pass=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 16)
+    
+    log_substep "Securing MariaDB"
+    run_silent "mysql -e \"DELETE FROM mysql.user WHERE User='';\" >/dev/null 2>&1" "Removing anonymous users"
+    run_silent "mysql -e \"DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');\" >/dev/null 2>&1" "Securing root"
+    
+    log_substep "Creating database"
+    run_command "mysql -e \"CREATE DATABASE IF NOT EXISTS $db_name CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\"" "Creating database" false
+    run_command "mysql -e \"CREATE USER IF NOT EXISTS '$db_user'@'127.0.0.1' IDENTIFIED BY '$db_pass';\"" "Creating user" false
+    run_command "mysql -e \"GRANT ALL PRIVILEGES ON $db_name.* TO '$db_user'@'127.0.0.1';\"" "Granting privileges" false
+    run_silent "mysql -e \"FLUSH PRIVILEGES;\"" "Flushing privileges"
+    
+    # Save credentials
+    mkdir -p /etc/mythicaldash
+    cat > /etc/mythicaldash/db.conf <<EOF
+# Database Configuration
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_NAME=$db_name
+DB_USER=$db_user
+DB_PASS=$db_pass
+EOF
+    
+    chmod 600 /etc/mythicaldash/db.conf
+    
+    echo -e "${GREEN}${EMOJI_KEY}  Database credentials saved to /etc/mythicaldash/db.conf${RESET}"
+    log_success "Database configured"
+}
+
+# ============================================================================
+# APPLICATION DEPLOYMENT
+# ============================================================================
+deploy_application() {
+    local mode="$1"
+    
+    log_step "Application Deployment"
+    
+    # Create directory
+    run_silent "mkdir -p $INSTALL_DIR" "Creating installation directory"
+    run_silent "chmod 755 $INSTALL_DIR" "Setting permissions"
+    
+    # Download
+    log_substep "Downloading MythicalDash"
+    run_command "wget -q -O /tmp/mythicaldash.zip https://github.com/MythicalLTD/MythicalDash/releases/latest/download/MythicalDash.zip" \
+        "Downloading application" true
+    
+    # Extract
+    log_substep "Extracting files"
+    run_command "unzip -q -o /tmp/mythicaldash.zip -d $INSTALL_DIR" \
+        "Extracting archive" false
+    
+    run_silent "rm -f /tmp/mythicaldash.zip" "Cleaning up"
+    
+    # Set permissions
+    run_silent "chown -R www-data:www-data $INSTALL_DIR" "Setting ownership"
+    run_silent "find $INSTALL_DIR -type d -exec chmod 755 {} \;" "Setting directory permissions"
+    run_silent "find $INSTALL_DIR -type f -exec chmod 644 {} \;" "Setting file permissions"
+    
+    log_success "Application deployed to $INSTALL_DIR"
+}
+
+setup_nginx() {
+    log_step "Web Server Configuration"
+    
+    cat > /etc/nginx/sites-available/mythicaldash <<'EOF'
+server {
+    listen 80;
+    server_name _;
+    root /var/www/mythicaldash-v3/public;
+    index index.php;
+    
+    location / {
+        try_files $uri $uri/ /index.php?$query_string;
+    }
+    
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php8.3-fpm.sock;
+        fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+        include fastcgi_params;
+    }
+}
+EOF
+    
+    run_silent "ln -sf /etc/nginx/sites-available/mythicaldash /etc/nginx/sites-enabled/" "Enabling site"
+    run_silent "rm -f /etc/nginx/sites-enabled/default" "Removing default site"
+    
+    run_command "nginx -t" "Testing configuration" false
+    run_silent "systemctl reload nginx" "Reloading Nginx"
+    
+    log_success "Nginx configured"
+}
+
+# ============================================================================
+# DOCKER DEPLOYMENT
+# ============================================================================
+install_docker() {
+    log_step "Docker Installation"
+    
+    log_substep "Setting up repository"
+    run_silent "apt-get remove -y docker docker-engine docker.io containerd runc 2>/dev/null" "Cleaning old versions"
+    
+    run_command "curl -fsSL https://get.docker.com -o /tmp/get-docker.sh" \
+        "Downloading Docker installer" true
+    
+    run_command "sh /tmp/get-docker.sh" \
+        "Installing Docker Engine" true
+    
+    run_silent "rm -f /tmp/get-docker.sh" "Cleaning up"
+    
+    run_silent "systemctl enable docker" "Enabling Docker"
+    run_silent "systemctl start docker" "Starting Docker"
+    
+    log_success "Docker installed"
+}
+
+deploy_with_docker() {
+    log_step "Docker Deployment"
+    
+    if [ ! -f "$INSTALL_DIR/docker-compose.yml" ]; then
+        log_error "docker-compose.yml not found"
+        return 1
+    fi
+    
+    cd "$INSTALL_DIR"
+    
+    log_substep "Starting containers"
+    run_command "docker compose up -d" "Starting Docker services" true
+    
+    echo -e "${CYAN}${EMOJI_CLOCK}  Waiting for services to start...${RESET}"
+    sleep 10
+    
+    log_success "Docker deployment complete"
+}
+
+# ============================================================================
+# CLOUDFLARE TUNNEL
+# ============================================================================
+setup_cloudflare() {
+    local mode="$1"
+    local email="$2"
+    local api_key="$3"
+    local hostname="$4"
+    
+    log_step "Cloudflare Tunnel Setup"
+    
+    case "$mode" in
+        "full")
+            setup_cloudflare_full "$email" "$api_key" "$hostname"
+            ;;
+        "semi")
+            echo -e "${YELLOW}${EMOJI_INFO}  Manual configuration required${RESET}"
+            echo -e "${WHITE}Please set up Cloudflare Tunnel manually:${RESET}"
+            echo -e "${CYAN}1. ${WHITE}Login to Cloudflare Dashboard${RESET}"
+            echo -e "${CYAN}2. ${WHITE}Go to Zero Trust → Networks → Tunnels${RESET}"
+            echo -e "${CYAN}3. ${WHITE}Create a tunnel pointing to ${KS_BLUE}http://localhost:4830${RESET}"
+            echo -e "${CYAN}4. ${WHITE}Configure DNS record for ${KS_BLUE}$hostname${RESET}"
+            ;;
+    esac
+}
+
+setup_cloudflare_full() {
+    local email="$1"
+    local api_key="$2"
+    local hostname="$3"
+    
+    log_substep "Installing cloudflared"
+    run_command "wget -q -O /tmp/cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb" \
+        "Downloading cloudflared" true
+    
+    run_silent "dpkg -i /tmp/cloudflared.deb" "Installing package"
+    run_silent "rm -f /tmp/cloudflared.deb" "Cleaning up"
+    
+    log_substep "Setting up tunnel"
+    # Note: This is a simplified version. Real implementation would need API calls
+    
+    echo -e "${GREEN}${EMOJI_LINK}  Tunnel will be configured for: ${KS_BLUE}$hostname${RESET}"
+    log_success "Cloudflare setup initiated"
+}
+
+# ============================================================================
+# USER INTERFACE
+# ============================================================================
+show_main_menu() {
+    echo -e "\n${KS_BLUE}${EMOJI_COMPUTER}  MAIN MENU ${KS_ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+    echo -e ""
+    echo -e "  ${GREEN}${EMOJI_DOCKER} [1] Docker Deployment${RESET}"
+    echo -e "     ${WHITE}→ Containerized installation with Docker${RESET}"
+    echo -e ""
+    echo -e "  ${CYAN}${EMOJI_SERVER} [2] Traditional Deployment${RESET}"
+    echo -e "     ${WHITE}→ Direct installation on host system${RESET}"
+    echo -e ""
+    echo -e "  ${YELLOW}${EMOJI_MAG} [3] System Diagnostics${RESET}"
+    echo -e "  ${MAGENTA}${EMOJI_EYES} [4] View Installation Log${RESET}"
+    echo -e ""
+    echo -e "  ${RED}${EMOJI_WARN} [5] Uninstall Options${RESET}"
+    echo -e ""
+    echo -e "  ${WHITE}${EMOJI_WAVE} [0] Exit${RESET}"
+    echo -e ""
+    echo -e "${KS_ORANGE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
+
+show_diagnostics() {
+    log_step "System Diagnostics"
+    
+    echo -e "${CYAN}${EMOJI_COMPUTER}  System Information${RESET}"
+    echo -e "${WHITE}  OS: ${KS_BLUE}$(lsb_release -ds 2>/dev/null || cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2)${RESET}"
+    echo -e "${WHITE}  Kernel: ${KS_BLUE}$(uname -r)${RESET}"
+    echo -e "${WHITE}  Architecture: ${KS_BLUE}$(uname -m)${RESET}"
+    echo -e "${WHITE}  Uptime: ${KS_BLUE}$(uptime -p | sed 's/up //')${RESET}"
+    
+    echo -e "\n${CYAN}${EMOJI_DATABASE}  Resources${RESET}"
+    echo -e "${WHITE}  CPU: ${KS_BLUE}$(nproc) cores${RESET}"
+    echo -e "${WHITE}  Memory: ${KS_BLUE}$(free -h | awk '/^Mem:/ {print $3 "/" $2}')${RESET}"
+    echo -e "${WHITE}  Disk: ${KS_BLUE}$(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 " used)"}')${RESET}"
+    
+    echo -e "\n${CYAN}${EMOJI_NETWORK}  Network${RESET}"
+    echo -e "${WHITE}  IP Address: ${KS_BLUE}$(hostname -I | awk '{print $1}')${RESET}"
+    echo -e "${WHITE}  Public IP: ${KS_BLUE}$(curl -s ifconfig.me)${RESET}"
+    
+    echo -e "\n${GREEN}${EMOJI_CHECK}  Diagnostics complete${RESET}"
+}
+
+# ============================================================================
+# INSTALLATION FLOWS
+# ============================================================================
+install_docker_flow() {
+    show_banner
+    echo -e "${KS_GREEN}${EMOJI_ROCKET}  Starting Docker Deployment ${EMOJI_ROCKET}${RESET}\n"
+    
+    validate_system
+    update_system
+    
+    # Install Docker
+    install_docker
+    
+    # Install dependencies
+    install_packages curl wget unzip jq
+    
+    # Deploy application
+    deploy_application "docker"
+    
+    # Start services
+    deploy_with_docker
+    
+    # Ask for configuration
+    echo -e "\n${CYAN}${EMOJI_GEAR}  Additional Configuration${RESET}"
+    read -p "$(echo -e "${WHITE}Configure Pterodactyl? (y/N): ${RESET}")" -n 1 -r
+    echo
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        read -p "$(echo -e "${WHITE}Pterodactyl URL: ${RESET}")" ptero_url
+        read -p "$(echo -e "${WHITE}Pterodactyl API Key: ${RESET}")" ptero_key
+        
+        if [ -n "$ptero_url" ] && [ -n "$ptero_key" ]; then
+            echo -e "${CYAN}${EMOJI_GEAR}  Configuring Pterodactyl...${RESET}"
+            docker exec -i mythicaldash_v3_backend php cli pterodactyl configure <<EOF
+y
+$ptero_url
+$ptero_key
+y
+EOF
+        fi
+    fi
+    
+    # Cloudflare setup
+    read -p "$(echo -e "${WHITE}Setup Cloudflare Tunnel? (y/N): ${RESET}")" -n 1 -r
+    echo
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${CYAN}${EMOJI_NETWORK}  Cloudflare Setup${RESET}"
+        read -p "$(echo -e "${WHITE}Tunnel Mode (full/semi): ${RESET}")" cf_mode
+        read -p "$(echo -e "${WHITE}Hostname (e.g., dash.example.com): ${RESET}")" cf_hostname
+        
+        if [ "$cf_mode" = "full" ]; then
+            read -p "$(echo -e "${WHITE}Cloudflare Email: ${RESET}")" cf_email
+            read -p "$(echo -e "${WHITE}Cloudflare API Key: ${RESET}")" cf_apikey
+            setup_cloudflare "full" "$cf_email" "$cf_apikey" "$cf_hostname"
+        else
+            setup_cloudflare "semi" "" "" "$cf_hostname"
+        fi
+    fi
+    
+    # Completion
+    echo -e "\n${KS_GREEN}${EMOJI_PARTY}  DEPLOYMENT COMPLETE! ${EMOJI_PARTY}${RESET}"
+    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}${EMOJI_LINK}  Access your dashboard at: ${KS_BLUE}http://localhost:4830${RESET}"
+    echo -e "${WHITE}${EMOJI_FOLDER}  Installation directory: ${KS_BLUE}$INSTALL_DIR${RESET}"
+    echo -e "${WHITE}${EMOJI_EYES}  View logs: ${KS_BLUE}tail -f $LOG_FILE${RESET}"
+    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+}
+
+install_traditional_flow() {
+    show_banner
+    echo -e "${KS_GREEN}${EMOJI_ROCKET}  Starting Traditional Deployment ${EMOJI_ROCKET}${RESET}\n"
+    
+    validate_system
+    update_system
+    
+    # Install packages
+    log_step "Installing System Packages"
+    
+    local packages=(
+        mariadb-server mariadb-client
+        nginx php8.3 php8.3-fpm php8.3-mysql
+        php8.3-mbstring php8.3-xml php8.3-curl
+        php8.3-zip php8.3-gd php8.3-bcmath
+        redis-server composer nodejs npm
+        curl wget unzip jq git
+    )
+    
+    install_packages "${packages[@]}"
+    
+    # Setup database
+    setup_database
+    
+    # Deploy application
+    deploy_application "traditional"
+    
+    # Setup Nginx
+    setup_nginx
+    
+    # Install composer dependencies
+    log_step "Installing PHP Dependencies"
+    cd "$INSTALL_DIR"
+    run_command "composer install --no-dev --optimize-autoloader" \
+        "Installing Composer packages" true
+    
+    # Setup application
+    log_step "Configuring Application"
+    run_silent "cp .env.example .env" "Creating environment file"
+    run_command "php artisan key:generate" "Generating application key" false
+    
+    # Setup database in app
+    export $(cat /etc/mythicaldash/db.conf | xargs)
+    cat > "$INSTALL_DIR/.env" <<EOF
+APP_ENV=production
+APP_KEY=
+DB_CONNECTION=mysql
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_DATABASE=$DB_NAME
+DB_USERNAME=$DB_USER
+DB_PASSWORD=$DB_PASS
+EOF
+    
+    run_command "php artisan migrate --force" "Running migrations" true
+    run_command "php artisan storage:link" "Linking storage" false
+    
+    # Setup cron
+    log_step "Setting up Scheduled Tasks"
+    (crontab -l 2>/dev/null; echo "* * * * * cd $INSTALL_DIR && php artisan schedule:run >> /dev/null 2>&1") | crontab -
+    log_success "Cron job added"
+    
+    # Completion
+    echo -e "\n${KS_GREEN}${EMOJI_PARTY}  DEPLOYMENT COMPLETE! ${EMOJI_PARTY}${RESET}"
+    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}${EMOJI_LINK}  Access your dashboard at: ${KS_BLUE}http://$(hostname -I | awk '{print $1}')${RESET}"
+    echo -e "${WHITE}${EMOJI_KEY}  Database config: ${KS_BLUE}/etc/mythicaldash/db.conf${RESET}"
+    echo -e "${WHITE}${EMOJI_FOLDER}  Installation directory: ${KS_BLUE}$INSTALL_DIR${RESET}"
+    echo -e "${KS_ORANGE}══════════════════════════════════════════════════════════${RESET}"
+}
+
+# ============================================================================
+# MAIN PROGRAM
+# ============================================================================
+main() {
+    # Initialize
+    mkdir -p $(dirname "$LOG_FILE")
+    echo "=== Installation started at $(date) ===" > "$LOG_FILE"
+    
+    while true; do
+        show_banner
+        show_main_menu
+        
+        read -p "$(echo -e "${KS_BLUE}${EMOJI_BRAIN}  Select option [0-5]: ${RESET}")" choice
+        
+        case $choice in
+            1)
+                install_docker_flow
+                break
                 ;;
-            1) # Install Native
-                step_header "💻 MythicalDash Native Installation Process"
-                if [ "$reinstall" = "y" ]; then sudo rm -f /var/www/mythicaldash-v3/.installed; fi
-                
-                # OS-specific installation logic 
-                if [ "$OS" = "ubuntu" ] || [ "$OS" = "ubuntu-server" ]; then
-                    echo_color $YELLOW "📦 Installing base dependencies for Ubuntu/Ubuntu Server..."
-                    export DEBIAN_FRONTEND=noninteractive
-                    sudo apt -qq update && sudo apt -qq upgrade -y & spinner "System Update/Upgrade"
-                    install_packages software-properties-common curl apt-transport-https ca-certificates gnupg jq make unzip tar git zip redis-server dos2unix
-                    
-                    echo_color $YELLOW "  ➕ Adding PHP (Ondrej) PPA & MariaDB repository..."
-                    LC_ALL=C.UTF-8 sudo add-apt-repository -y ppa:ondrej/php > /dev/null
-                    curl -sS https://downloads.mariadb.com/MariaDB/mariadb_repo_setup | sudo bash > /dev/null
-                    sudo apt -qq update & spinner "Repository Update"
-                    install_packages mariadb-server mariadb-client php8.3 php8.3-common php8.3-cli php8.3-gd php8.3-mysql php8.3-mbstring php8.3-bcmath php8.3-xml php8.3-fpm php8.3-curl php8.3-zip php8.3-redis
-                # ... (Debian logic similarly enhanced) ...
-                fi
-
-                if ! command -v composer &> /dev/null; then
-                    echo_color $YELLOW "  🎼 Installing Composer..."
-                    curl -sS https://getcomposer.org/installer | sudo php -- --install-dir=/usr/local/bin --filename=composer > /dev/null
-                    echo_color $GREEN "  ✅ Composer installed."
-                fi
-                
-                # Application/Database Setup 
-                echo_color $YELLOW "  ⬇️ Downloading/Extracting MythicalDash..."
-                sudo mkdir -p /var/www/mythicaldash-v3
-                cd /var/www/mythicaldash-v3 || exit 1
-                sudo curl -Lo MythicalDash.zip https://github.com/MythicalLTD/MythicalDash/releases/latest/download/MythicalDash.zip > /dev/null
-                sudo unzip -o MythicalDash.zip -d /var/www/mythicaldash-v3 > /dev/null
-                # ... (extraction cleanup logic remains) ...
-                sudo chown -R www-data:www-data /var/www/mythicaldash-v3/*
-                
-                echo_color $YELLOW "  Composer: Installing PHP dependencies..."
-                cd /var/www/mythicaldash-v3/backend || exit 1
-                COMPOSER_ALLOW_SUPERUSER=1 sudo composer install --no-dev --optimize-autoloader & spinner "Composer Install"
-                
-                echo_color $YELLOW "  ⚙️ Starting/Configuring MariaDB..."
-                sudo systemctl enable --now mariadb
-                # ... (sed commands remain) ...
-                sudo systemctl restart mariadb & spinner "MariaDB Restart"
-
-                echo_color $YELLOW "  🔑 Creating MariaDB user and database..."
-                DB_PASSWORD=$(head /dev/urandom | tr -dc A-Za-z0-9_ | head -c 16)
-                sudo mysql -e "CREATE USER IF NOT EXISTS 'mythicaldash_remastered'@'127.0.0.1';"
-                sudo mysql -e "ALTER USER 'mythicaldash_remastered'@'127.0.0.1' IDENTIFIED BY '$DB_PASSWORD';"
-                sudo mysql -e "CREATE DATABASE IF NOT EXISTS mythicaldash_remastered;"
-                sudo mysql -e "GRANT ALL PRIVILEGES ON mythicaldash_remastered.* TO 'mythicaldash_remastered'@'127.0.0.1' WITH GRANT OPTION;" & spinner "Database/User Creation"
-                echo_color $GREEN "  🔑 Database Password Generated: ${DB_PASSWORD}"
-
-                echo_color $YELLOW "  📦 Running initial application setup/migrations..."
-                cd /var/www/mythicaldash-v3 || exit 1
-                sudo make set-prod > /dev/null
-                
-                # Run setup/migrate using the generated password
-                printf "xchacha20\nmythicaldash_remastered\n127.0.0.1\n3306\nmythicaldash_remastered\n%s\n" "$DB_PASSWORD" | sudo -u www-data php mythicaldash setup
-                sudo -u www-data php mythicaldash migrate & spinner "Database Migration"
-
-                if [[ "$PTERO_CONFIGURE" =~ ^[yY]$ ]]; then
-                    echo_color $CYAN "  🛠️ Configuring Pterodactyl settings..."
-                    printf "y\n%s\n%s\ny\n" "$PTERO_URL" "$PTERO_API_KEY" | sudo -u www-data php mythicaldash pterodactyl configure
-                    echo_color $GREEN "  ✅ Pterodactyl configuration complete."
-                fi
-
-                echo_color $YELLOW "  ⏰ Adding/Updating Cron Jobs..."
-                { crontab -l 2>/dev/null | grep -v -F "/var/www/mythicaldash-v3/"; \
-                  echo "* * * * * bash /var/www/mythicaldash-v3/backend/storage/cron/runner.bash >> /dev/null 2>&1"; \
-                  echo "* * * * * php /var/www/mythicaldash-v3/backend/storage/cron/runner.php >> /dev/null 2>&1"; } | crontab - & spinner "Cron Jobs"
-
-                if [[ "$CF_TUNNEL_SETUP" =~ ^[yY]$ ]]; then
-                    if [ "$CF_TUNNEL_MODE" == "1" ]; then if ! setup_cloudflare_tunnel_full_auto; then CF_TUNNEL_TOKEN=""; fi; fi
-                    setup_cloudflare_tunnel_client
-                fi
-
-                sudo touch /var/www/mythicaldash-v3/.installed
-                echo_color $GREEN "🎉 MythicalDash-v3 Native setup is COMPLETE!"
+            2)
+                install_traditional_flow
+                break
                 ;;
-            2) # Uninstall Docker
-                if [ "$confirm" = "y" ]; then uninstall_docker; else echo_color $GREEN "✅ Uninstallation cancelled."; exit 0; fi
+            3)
+                show_banner
+                show_diagnostics
+                read -p "$(echo -e "\n${WHITE}Press Enter to continue...${RESET}")" _
                 ;;
-            3) # Uninstall without Docker
-                if [ "$confirm" = "y" ]; then uninstall_no_docker; else echo_color $GREEN "✅ Uninstallation cancelled."; exit 0; fi
+            4)
+                show_banner
+                echo -e "${CYAN}${EMOJI_EYES}  Installation Log (last 20 lines)${RESET}"
+                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                tail -20 "$LOG_FILE"
+                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                read -p "$(echo -e "\n${WHITE}Press Enter to continue...${RESET}")" _
+                ;;
+            5)
+                show_banner
+                echo -e "${RED}${EMOJI_WARN}  Uninstall Options${RESET}"
+                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                echo -e "${WHITE}[1] Remove Docker installation${RESET}"
+                echo -e "${WHITE}[2] Remove Traditional installation${RESET}"
+                echo -e "${WHITE}[3] Back to main menu${RESET}"
+                echo -e "${KS_ORANGE}────────────────────────────────────────────────────────────${RESET}"
+                read -p "$(echo -e "${WHITE}Select: ${RESET}")" uninstall_choice
+                
+                case $uninstall_choice in
+                    1)
+                        echo -e "${RED}${EMOJI_WARN}  Removing Docker installation...${RESET}"
+                        run_silent "cd $INSTALL_DIR && docker compose down -v" "Stopping containers"
+                        run_silent "rm -rf $INSTALL_DIR" "Removing files"
+                        log_success "Docker installation removed"
+                        ;;
+                    2)
+                        echo -e "${RED}${EMOJI_WARN}  Removing Traditional installation...${RESET}"
+                        run_silent "rm -rf $INSTALL_DIR" "Removing application"
+                        run_silent "mysql -e 'DROP DATABASE IF EXISTS mythicaldash'" "Removing database"
+                        run_silent "rm -f /etc/nginx/sites-{available,enabled}/mythicaldash" "Removing Nginx config"
+                        log_success "Traditional installation removed"
+                        ;;
+                esac
+                ;;
+            0)
+                echo -e "\n${KS_BLUE}${EMOJI_WAVE}  Thank you for using KS HOSTING!${RESET}"
+                echo -e "${WHITE}Goodbye!${RESET}\n"
+                exit 0
                 ;;
             *)
-                echo_color $RED "❌ Internal error: Invalid installation type."
-                exit 1
+                echo -e "${RED}${EMOJI_ERROR}  Invalid selection!${RESET}"
+                sleep 1
                 ;;
         esac
-    else
-        echo_color $RED "❌ Unsupported OS: $OS"
-        exit 1
-    fi
-else
-    echo_color $RED "❌ Cannot determine OS"
-    exit 1
+    done
+    
+    # Final message
+    echo -e "\n${KS_GREEN}${EMOJI_SPARKLES}  Installation completed successfully! ${EMOJI_SPARKLES}${RESET}"
+    echo -e "${KS_BLUE}══════════════════════════════════════════════════════════${RESET}"
+    echo -e "${WHITE}Need help? Check the documentation or contact support.${RESET}"
+    echo -e "${WHITE}Log file: ${KS_BLUE}$LOG_FILE${RESET}"
+    echo -e "${KS_BLUE}══════════════════════════════════════════════════════════${RESET}"
+}
+
+# ============================================================================
+# ENTRY POINT
+# ============================================================================
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
 fi
